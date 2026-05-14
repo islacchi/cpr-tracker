@@ -86,6 +86,7 @@
         </div>
     </div>
 
+
     {{-- Previously Scanned Notification --}}
     @if(isset($fromDb) && $fromDb > 0)
     <div id="scan-notice" class="fixed top-6 right-6 z-40 w-96 bg-white border border-blue-200 rounded-xl shadow-lg p-5">
@@ -115,6 +116,8 @@
     </div>
     @endif
 
+
+    
     <div class="max-w-7xl mx-auto">
 
         {{-- Header --}}
@@ -218,73 +221,114 @@
 
             {{-- Pagination --}}
             <div class="mt-4 flex items-center justify-between flex-wrap gap-2">
-                <div class="flex items-center gap-2">
-                    <span class="text-sm text-gray-600">Rows per page:</span>
-                    @foreach([10, 20, 30] as $size)
-                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                            @csrf
-                            <input type="hidden" name="folder_path" value="{{ $folderPath }}">
-                            <input type="hidden" name="per_page" value="{{ $size }}">
-                            <input type="hidden" name="page" value="1">
-                            <button type="submit"
-                                class="px-3 py-1 text-sm rounded-lg border transition
-                                    {{ $perPage == $size
-                                        ? 'bg-blue-600 text-white border-blue-600'
-                                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50' }}">
-                                {{ $size }}
-                            </button>
-                        </form>
-                    @endforeach
-                    <span class="text-sm text-gray-400 ml-2">
-                        Showing {{ ($page - 1) * $perPage + 1 }}–{{ min($page * $perPage, $total) }} of {{ $total }}
-                    </span>
-                </div>
 
-                <div class="flex items-center gap-2">
-                    {{-- Previous --}}
-                    @if($page > 1)
-                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                            @csrf
-                            <input type="hidden" name="folder_path" value="{{ $folderPath }}">
-                            <input type="hidden" name="per_page" value="{{ $perPage }}">
-                            <input type="hidden" name="page" value="{{ $page - 1 }}">
-                            <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">
-                                ← Prev
-                            </button>
-                        </form>
-                    @endif
+            {{-- ===================== LEFT SIDE: Rows per page ===================== --}}
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-600">Rows per page:</span>
 
-                    {{-- Page Numbers --}}
-                    @for($i = 1; $i <= $lastPage; $i++)
-                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                            @csrf
-                            <input type="hidden" name="folder_path" value="{{ $folderPath }}">
-                            <input type="hidden" name="per_page" value="{{ $perPage }}">
-                            <input type="hidden" name="page" value="{{ $i }}">
-                            <button type="submit"
-                                class="px-3 py-1 text-sm rounded-lg border transition
-                                    {{ $page == $i
-                                        ? 'bg-blue-600 text-white border-blue-600'
-                                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50' }}">
-                                {{ $i }}
-                            </button>
-                        </form>
-                    @endfor
+                @foreach([10, 20, 30] as $size)
 
-                    {{-- Next --}}
-                    @if($page < $lastPage)
-                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                            @csrf
-                            <input type="hidden" name="folder_path" value="{{ $folderPath }}">
-                            <input type="hidden" name="per_page" value="{{ $perPage }}">
-                            <input type="hidden" name="page" value="{{ $page + 1 }}">
-                            <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">
-                                Next →
-                            </button>
-                        </form>
-                    @endif
-                </div>
+                    {{--
+                        DISABLED LOGIC:
+                        - $total < $size  → not enough items to fill this page size
+                        - && $perPage != $size → don't disable the currently active button
+                    --}}
+                    @php $isDisabled = $total < $size && $perPage != $size; @endphp
+
+                    <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                        @csrf
+                        <input type="hidden" name="folder_path" value="{{ $folderPath }}">
+                        <input type="hidden" name="per_page" value="{{ $size }}">
+                        <input type="hidden" name="page" value="1">
+
+                        <button
+                            type="submit"
+                            @if($isDisabled) disabled @endif
+                            class="px-3 py-1 text-sm rounded-lg border transition
+                                {{ $perPage == $size
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : ($isDisabled
+                                        ? 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'
+                                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50') }}">
+                            {{ $size }}
+                        </button>
+                    </form>
+
+                @endforeach
+
+                {{--
+                    Showing X–Y of Z
+                    - Start : ($page - 1) * $perPage + 1
+                    - End   : capped at $total so it never overflows (e.g. "28 of 28" not "30 of 28")
+                --}}
+                <span class="text-sm text-gray-400 ml-2">
+                    Showing {{ ($page - 1) * $perPage + 1 }}–{{ min($page * $perPage, $total) }} of {{ $total }}
+                </span>
             </div>
+
+            {{-- ===================== RIGHT SIDE: Pagination controls ===================== --}}
+            <div class="flex items-center gap-2">
+
+                {{--
+                    PREVIOUS BUTTON:
+                    Only rendered when not on the first page ($page > 1).
+                    Submits with page - 1, keeping the current per_page intact.
+                --}}
+                @if($page > 1)
+                    <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                        @csrf
+                        <input type="hidden" name="folder_path" value="{{ $folderPath }}">
+                        <input type="hidden" name="per_page" value="{{ $perPage }}">
+                        <input type="hidden" name="page" value="{{ $page - 1 }}">
+                        <button type="submit"
+                            class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">
+                            ← Prev
+                        </button>
+                    </form>
+                @endif
+
+                {{--
+                    PAGE NUMBER BUTTONS:
+                    Loops from 1 to $lastPage.
+                    Active page gets blue highlight; all others are default style.
+                    Each button submits its own page number while keeping per_page unchanged.
+                --}}
+                @for($i = 1; $i <= $lastPage; $i++)
+                    <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                        @csrf
+                        <input type="hidden" name="folder_path" value="{{ $folderPath }}">
+                        <input type="hidden" name="per_page" value="{{ $perPage }}">
+                        <input type="hidden" name="page" value="{{ $i }}">
+                        <button type="submit"
+                            class="px-3 py-1 text-sm rounded-lg border transition
+                                {{ $page == $i
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50' }}">
+                            {{ $i }}
+                        </button>
+                    </form>
+                @endfor
+
+                {{--
+                    NEXT BUTTON:
+                    Only rendered when not on the last page ($page < $lastPage).
+                    Submits with page + 1, keeping the current per_page intact.
+                --}}
+                @if($page < $lastPage)
+                    <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                        @csrf
+                        <input type="hidden" name="folder_path" value="{{ $folderPath }}">
+                        <input type="hidden" name="per_page" value="{{ $perPage }}">
+                        <input type="hidden" name="page" value="{{ $page + 1 }}">
+                        <button type="submit"
+                            class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">
+                            Next →
+                        </button>
+                    </form>
+                @endif
+
+            </div>
+        </div>
 
             {{-- Summary Cards --}}
             <div class="mt-6 grid grid-cols-4 gap-4">
