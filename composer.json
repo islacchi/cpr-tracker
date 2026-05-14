@@ -10,7 +10,6 @@
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1",
         "smalot/pdfparser": "^2.12",
-        "spatie/pdf-to-image": "^3.2",
         "thiagoalessio/tesseract_ocr": "^2.13"
     },
     "require-dev": {
