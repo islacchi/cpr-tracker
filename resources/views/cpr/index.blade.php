@@ -366,10 +366,20 @@
 
     <script>
         // ── Dark Mode ─────────────────────────────────────────────
-        if (localStorage.getItem('darkMode') === 'true') {
-            document.documentElement.classList.add('dark');
-            document.getElementById('dark-toggle').textContent = '☀️ Light Mode';
+        // if (localStorage.getItem('darkMode') === 'true') {
+        //     document.documentElement.classList.add('dark');
+        //     document.getElementById('dark-toggle').textContent = '☀️ Light Mode';
+        // }
+        window.addEventListener('DOMContentLoaded', () => {
+    if (localStorage.getItem('darkMode') === 'true') {
+        document.documentElement.classList.add('dark');
+
+        const btn = document.getElementById('dark-toggle');
+        if (btn) {
+            btn.textContent = '☀️ Light Mode';
         }
+    }
+});
 
         function toggleDarkMode() {
             const html = document.documentElement;
@@ -427,9 +437,14 @@
             }, 300);
         }
 
-        document.querySelector('form').addEventListener('submit', function() {
-            showLoading();
-        });
+        // document.querySelector('form').addEventListener('submit', function() {
+        document.querySelectorAll('form').forEach(form => {
+    form.addEventListener('submit', function () {
+        showLoading();
+    });
+});
+        //     showLoading();
+        // });
 
         window.addEventListener('load', hideLoading);
 
@@ -455,7 +470,10 @@
         }
 
         // Auto dismiss notice after 8 seconds
-        setTimeout(() => dismissNotice(), 8000);
+        // setTimeout(() => dismissNotice(), 8000);
+        if (document.getElementById('scan-notice')) {
+    setTimeout(() => dismissNotice(), 8000);
+}
     </script>
 </body>
 </html>
