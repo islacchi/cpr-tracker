@@ -22,7 +22,7 @@ public function index()
     ]);
 }
 
-  public function scan(Request $request)
+public function scan(Request $request)
 {
     set_time_limit(300);
 
@@ -30,40 +30,105 @@ public function index()
     $perPage    = (int) $request->input('per_page', 10);
     $page       = (int) $request->input('page', 1);
 
-    if ($request->input('page') || $request->input('per_page')) {
+   if ($request->input('page') || $request->input('per_page')) {
         $folderPath = $folderPath ?? session('last_folder_path');
+    }
+
+    // Guard 1: Empty path
+    if (empty(trim((string) $folderPath))) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => 'Please enter a folder path before scanning.'])
+            ->withInput();
     }
 
     $request->validate(['folder_path' => 'required|string']);
 
-    if (!is_dir($folderPath)) {
-        return back()->withErrors(['folder_path' => 'Folder not found.'])->withInput();
+    $folderPath = rtrim(trim($folderPath), DIRECTORY_SEPARATOR);
+    
+
+    // Guard 2: Path doesn't exist
+    if (!file_exists($folderPath)) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => '❌ Folder not found. Please check the path and try again.'])
+            ->withInput();
     }
 
-    session(['last_folder_path' => $folderPath]);
+    // Guard 3: Path is a file not a folder
+    if (!is_dir($folderPath)) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => '❌ The path points to a file, not a folder.'])
+            ->withInput();
+    }
 
-    // Force rescan — clear existing records for this folder
+    // Guard 4: Folder not readable
+    if (!is_readable($folderPath)) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => '❌ Folder exists but cannot be read. Check permissions.'])
+            ->withInput();
+    }
+
+    // Guard 5: Dangerous system paths — defined HERE before use
+    $dangerousPaths = ['/', 'C:\\', 'C:/', sys_get_temp_dir()];
+    if (in_array(rtrim($folderPath, '/\\'), array_map(fn($p) => rtrim($p, '/\\'), $dangerousPaths), true)) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => '❌ Scanning this directory is not allowed.'])
+            ->withInput();
+    }
+
+    // Define $files HERE so Guards 6 & 7 can use it
+    $files = glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
+
+    // Guard 6: No PDFs found
+    if (empty($files)) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => '⚠️ No PDF files found in this folder.'])
+            ->withInput();
+    }
+
+    // Guard 7: Too many files
+    if (count($files) > 500) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => '⚠️ Too many files (' . count($files) . '). Maximum allowed is 500 PDFs per scan.'])
+            ->withInput();
+    }
+
+    // Guard 8: Path too long
+    if (strlen($folderPath) > 500) {
+        return redirect()->route('cpr.index')
+            ->withErrors(['folder_path' => '❌ Folder path is too long.'])
+            ->withInput();
+    }
+
+    // Store folder path in session
+    session(['last_folder_path' => $folderPath]);
+    // ── Force rescan ──────────────────────────────────────────
     if ($request->input('force_rescan')) {
-        \App\Models\CprRecord::where('filename', function($query) use ($folderPath) {
-            $query->select('filename')
-                  ->from('cpr_records')
-                  ->where('folder_path', $folderPath);
-        })->delete();
+        \App\Models\CprRecord::whereIn('filename', collect($files)->map(fn($f) => basename($f))->toArray())
+            ->delete();
     }
 
     $isFreshScan = !$request->has('page') && !$request->has('per_page');
-
-    $fromDb  = 0;
-    $fromPdf = 0;
+    $fromDb      = 0;
+    $fromPdf     = 0;
 
     if ($isFreshScan) {
         $parser = new \App\Services\CprParser();
-        $files  = glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf');
 
         foreach ($files as $file) {
             $filename = basename($file);
 
-            // Check if already in DB with matching values
+            // ── Guard 9: Skip non-readable files ─────────────
+            if (!is_readable($file)) {
+                \Log::warning('Skipping unreadable file: ' . $filename);
+                continue;
+            }
+
+            // ── Guard 10: Skip empty files ────────────────────
+            if (filesize($file) === 0) {
+                \Log::warning('Skipping empty file: ' . $filename);
+                continue;
+            }
+
             $existing = \App\Models\CprRecord::where('filename', $filename)
                 ->whereNotNull('registration_number')
                 ->whereNotNull('expiry_date')
@@ -77,7 +142,6 @@ public function index()
                     $existing->expiry_date         == $parsed['expiry_date'];
 
                 if ($valuesMatch) {
-                    // Same data — update folder_path in case it moved
                     $existing->update(['folder_path' => $folderPath]);
                     $fromDb++;
                     continue;
@@ -86,7 +150,6 @@ public function index()
                 $parsed = $parser->parse($file);
             }
 
-            // New or updated file — parse and store
             $daysRemaining = null;
             $status        = $parsed['status'];
 
@@ -120,22 +183,19 @@ public function index()
                 ]
             );
 
-                   $fromPdf++;
+            $fromPdf++;
         }
 
-        // Store counts in session
         session([
             'scan_from_db'  => $fromDb,
             'scan_from_pdf' => $fromPdf,
         ]);
 
     } else {
-        // Paginating — pull counts from session
         $fromDb  = session('scan_from_db', 0);
         $fromPdf = session('scan_from_pdf', 0);
     }
 
-    // Load from DB for display
     $total    = \App\Models\CprRecord::where('folder_path', $folderPath)->count();
     $lastPage = (int) ceil($total / $perPage);
     $records  = \App\Models\CprRecord::where('folder_path', $folderPath)
