@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -9,11 +10,24 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('cpr_records', function (Blueprint $table) {
-            // Remove old composite unique constraint
-            $table->dropUnique(['filename', 'folder_path']);
+            // Drop composite index only if it exists
+            $indexes = collect(DB::select("SHOW INDEX FROM cpr_records"))
+                ->pluck('Key_name')->toArray();
 
-            // Add new unique constraint on filename only
-            $table->unique('filename');
+            if (in_array('cpr_records_filename_folder_path_unique', $indexes)) {
+                $table->dropUnique(['filename', 'folder_path']);
+            }
+
+            // Add unique on filename only if not already there
+            if (!in_array('cpr_records_filename_unique', $indexes)) {
+                // Remove duplicate rows first — keep lowest id per filename
+                DB::statement('
+                    DELETE r1 FROM cpr_records r1
+                    INNER JOIN cpr_records r2
+                    WHERE r1.id > r2.id AND r1.filename = r2.filename
+                ');
+                $table->unique('filename');
+            }
         });
     }
 

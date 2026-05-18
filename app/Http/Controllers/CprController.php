@@ -10,6 +10,10 @@ use Carbon\Carbon;
 
 class CprController extends Controller
 {
+    // ── How many files to parse in parallel via proc_open.
+    //    Tune this to your CPU core count. 4 is safe on most servers.
+    private const PARSE_CONCURRENCY = 4;
+
     public function index()
     {
         return view('cpr.index', [
@@ -38,8 +42,6 @@ class CprController extends Controller
         $perPage = (int) $request->input('per_page', 10);
         $page    = (int) $request->input('page', 1);
 
-        // On pagination always read folder_path from session — never trust
-        // the hidden form input (prevents folder_path tampering).
         $isPagination = $request->has('page') || $request->has('per_page');
         $folderPath   = $isPagination
             ? session('last_folder_path')
@@ -100,14 +102,12 @@ class CprController extends Controller
             session()->flash('rescan_success', 'All records have been wiped and re-parsed successfully.');
         }
 
-        $isFreshScan  = !$isPagination;
-        $fromDb       = 0;
-        $fromPdf      = 0;
-        $duplicates   = [];
+        $isFreshScan = !$isPagination;
+        $fromDb      = 0;
+        $fromPdf     = 0;
+        $duplicates  = [];
 
         if ($isFreshScan) {
-            $parser = new \App\Services\CprParser();
-
             $filenames       = collect($files)->map(fn($f) => basename($f))->toArray();
             $existingRecords = CprRecord::whereIn('filename', $filenames)
                 ->whereNotNull('registration_number')
@@ -115,118 +115,121 @@ class CprController extends Controller
                 ->get()
                 ->keyBy('filename');
 
-            // Collect every row that needs writing into one array, then
-            // write them all in a single upsert call inside one transaction.
-            // Previously: N files = N×2 individual DB round trips.
-            // Now: always exactly 1 DB write regardless of file count.
+            // ── PASS 1: classify files into cache-hits vs needs-parse ──────────
+            // Cache hits are skipped from the upsert entirely when folder_path
+            // hasn't moved — eliminates the N-row no-op write the old code did.
             $rowsToUpsert = [];
+            $filesToParse = [];
 
-            DB::transaction(function () use (
-                $files, $parser, $folderPath, $existingRecords,
-                &$fromDb, &$fromPdf, &$duplicates, &$rowsToUpsert
-            ) {
-                foreach ($files as $file) {
-                    $filename = basename($file);
+            foreach ($files as $file) {
+                $filename = basename($file);
 
-                    if (!is_readable($file)) {
-                        Log::warning('Skipping unreadable file: ' . $filename);
-                        continue;
-                    }
-                    if (filesize($file) === 0) {
-                        Log::warning('Skipping empty file: ' . $filename);
-                        continue;
-                    }
-
-                    $existing = $existingRecords->get($filename);
-                    $parsed   = null;
-
-                    if ($existing) {
-                        // Force both timestamps to UTC before comparing so
-                        // timezone mismatches don't cause false cache misses.
-                        $fileModified  = Carbon::createFromTimestamp(filemtime($file))->utc();
-                        $recordUpdated = Carbon::parse($existing->updated_at)->utc();
-
-                        if ($fileModified->lte($recordUpdated)) {
-                            // File unchanged — queue a folder_path refresh in
-                            // the batch instead of a standalone UPDATE per file.
-                            $rowsToUpsert[] = $this->existingToRow($existing, $folderPath);
-
-                            $duplicates[] = $this->existingToDuplicate($existing, $filename);
-                            $fromDb++;
-                            continue;
-                        }
-
-                        $parsed      = $parser->parse($file);
-                        $valuesMatch =
-                            $existing->registration_number === $parsed['registration_number'] &&
-                            Carbon::parse($existing->expiry_date)->toDateString() === Carbon::parse($parsed['expiry_date'])->toDateString();
-
-                        if ($valuesMatch) {
-                            $rowsToUpsert[] = $this->existingToRow($existing, $folderPath);
-                            $duplicates[]   = $this->existingToDuplicate($existing, $filename);
-                            $fromDb++;
-                            continue;
-                        }
-
-                    } else {
-                        $parsed = $parser->parse($file);
-                    }
-
-                    if ($parsed === null) {
-                        Log::warning('Skipping file — no parse result: ' . $filename);
-                        continue;
-                    }
-
-                    $daysRemaining = null;
-                    $status        = $parsed['status'];
-
-                    if ($parsed['expiry_date']) {
-                        $expiry        = Carbon::parse($parsed['expiry_date']);
-                        $daysRemaining = (int) now()->startOfDay()->diffInDays($expiry, false);
-                        $status        = match(true) {
-                            $daysRemaining < 0   => 'Expired',
-                            $daysRemaining <= 90 => 'Expiring Soon',
-                            default              => 'Valid',
-                        };
-                    }
-
-                    $normalizedFilename = $this->normalizeFilename(
-                        $parsed['generic_name'],
-                        $parsed['brand_name'],
-                        $parsed['expiry_date']
-                    );
-
-                    // Extract the leading number from the filename once at
-                    // parse time and store it as sort_order. ORDER BY on this
-                    // plain integer column uses the index directly — replaces
-                    // the per-query REGEXP_SUBSTR that couldn't use any index.
-                    preg_match('/^(\d+)/', $filename, $matches);
-                    $sortOrder = isset($matches[1]) ? (int) $matches[1] : 0;
-
-                    $now = now();
-
-                    $rowsToUpsert[] = [
-                        'filename'            => $filename,
-                        'folder_path'         => $folderPath,
-                        'normalized_filename' => $normalizedFilename,
-                        'registration_number' => $parsed['registration_number'],
-                        'brand_name'          => $parsed['brand_name'],
-                        'generic_name'        => $parsed['generic_name'],
-                        'expiry_date'         => $parsed['expiry_date'],
-                        'days_remaining'      => $daysRemaining,
-                        'status'              => $status,
-                        'sort_order'          => $sortOrder,
-                        'updated_at'          => $now,
-                        'created_at'          => $now,
-                    ];
-
-                    $fromPdf++;
+                if (!is_readable($file)) {
+                    Log::warning('Skipping unreadable file: ' . $filename);
+                    continue;
+                }
+                if (filesize($file) === 0) {
+                    Log::warning('Skipping empty file: ' . $filename);
+                    continue;
                 }
 
-                // Single upsert for ALL rows.
-                if (!empty($rowsToUpsert)) {
+                $existing = $existingRecords->get($filename);
+
+                if ($existing) {
+                    $fileModified  = Carbon::createFromTimestamp(filemtime($file))->utc();
+                    $recordUpdated = Carbon::parse($existing->updated_at)->utc();
+
+                    if ($fileModified->lte($recordUpdated)) {
+                        // File unchanged. Only touch DB if the folder moved.
+                        if ($existing->folder_path !== $folderPath) {
+                            $row                = $this->existingToRow($existing, $folderPath);
+                            $row['updated_at']  = now();
+                            $rowsToUpsert[]     = $row;
+                        }
+                        $duplicates[] = $this->existingToDuplicate($existing, $filename);
+                        $fromDb++;
+                        continue;
+                    }
+                }
+
+                $filesToParse[] = $file;
+            }
+
+            // ── PASS 2: parse only files that actually need it ─────────────────
+            // Parallel when PARSE_CONCURRENCY > 1 and proc_open is available.
+            $parsedResults = $this->parseFiles($filesToParse);
+
+            $now = now();
+            foreach ($filesToParse as $file) {
+                $filename = basename($file);
+                $parsed   = $parsedResults[$filename] ?? null;
+                $existing = $existingRecords->get($filename);
+
+                // File was re-read but values are identical — skip the write.
+                if ($existing && $parsed !== null) {
+                    $valuesMatch =
+                        $existing->registration_number === $parsed['registration_number'] &&
+                        Carbon::parse($existing->expiry_date)->toDateString()
+                            === Carbon::parse($parsed['expiry_date'])->toDateString();
+
+                    if ($valuesMatch && $existing->folder_path === $folderPath) {
+                        $duplicates[] = $this->existingToDuplicate($existing, $filename);
+                        $fromDb++;
+                        continue;
+                    }
+                }
+
+                if ($parsed === null) {
+                    Log::warning('Skipping file — no parse result: ' . $filename);
+                    continue;
+                }
+
+                $daysRemaining = null;
+                $status        = $parsed['status'];
+
+                if ($parsed['expiry_date']) {
+                    $expiry        = Carbon::parse($parsed['expiry_date']);
+                    $daysRemaining = (int) now()->startOfDay()->diffInDays($expiry, false);
+                    $status        = match (true) {
+                        $daysRemaining < 0   => 'Expired',
+                        $daysRemaining <= 90 => 'Expiring Soon',
+                        default              => 'Valid',
+                    };
+                }
+
+                $normalizedFilename = $this->normalizeFilename(
+                    $parsed['generic_name'],
+                    $parsed['brand_name'],
+                    $parsed['expiry_date']
+                );
+
+                preg_match('/^(\d+)/', $filename, $matches);
+                $sortOrder = isset($matches[1]) ? (int) $matches[1] : 0;
+
+                $rowsToUpsert[] = [
+                    'filename'            => $filename,
+                    'folder_path'         => $folderPath,
+                    'normalized_filename' => $normalizedFilename,
+                    'registration_number' => $parsed['registration_number'],
+                    'brand_name'          => $parsed['brand_name'],
+                    'generic_name'        => $parsed['generic_name'],
+                    'expiry_date'         => $parsed['expiry_date'],
+                    'days_remaining'      => $daysRemaining,
+                    'status'              => $status,
+                    'sort_order'          => $sortOrder,
+                    'updated_at'          => $now,
+                    'created_at'          => $now,
+                ];
+
+                $fromPdf++;
+            }
+
+            // ── Single write, no transaction needed for upsert on a unique key.
+            // Chunked to stay under MySQL's max_allowed_packet on large folders.
+            if (!empty($rowsToUpsert)) {
+                foreach (array_chunk($rowsToUpsert, 100) as $chunk) {
                     DB::table('cpr_records')->upsert(
-                        $rowsToUpsert,
+                        $chunk,
                         ['filename'],
                         [
                             'folder_path',
@@ -242,16 +245,15 @@ class CprController extends Controller
                         ]
                     );
                 }
-            });
+            }
 
-            // Compute summary counts once after the fresh scan and cache them.
-            // Pagination requests will read from session — no re-query per page.
+            // Summary counts — one aggregate query, cached in session.
             $summaryCounts = CprRecord::where('folder_path', $folderPath)
                 ->selectRaw("
-                    SUM(status = 'Valid') as valid,
-                    SUM(status = 'Expiring Soon') as expiring_soon,
-                    SUM(status = 'Expired') as expired,
-                    SUM(status IN ('Parse Error', 'Unknown')) as errors
+                    SUM(status = 'Valid')                        as valid,
+                    SUM(status = 'Expiring Soon')                as expiring_soon,
+                    SUM(status = 'Expired')                      as expired,
+                    SUM(status IN ('Parse Error', 'Unknown'))    as errors
                 ")
                 ->first();
 
@@ -272,8 +274,6 @@ class CprController extends Controller
         $total    = CprRecord::where('folder_path', $folderPath)->count();
         $lastPage = (int) ceil($total / $perPage);
 
-        // ORDER BY sort_order hits the index — replaces the old REGEXP_SUBSTR
-        // expression that forced a full-table scan + sort on every page load.
         $records = CprRecord::where('folder_path', $folderPath)
             ->orderBy('sort_order', 'asc')
             ->skip(($page - 1) * $perPage)
@@ -298,8 +298,109 @@ class CprController extends Controller
         ]);
     }
 
-    // ── Private helpers to de-duplicate the "existing record → row/duplicate"
-    //   mapping that was repeated verbatim four times in the original loop.
+    // ── Parallel PDF parser ──────────────────────────────────────────────────
+    //
+    // Spawns up to PARSE_CONCURRENCY concurrent artisan workers, each parsing
+    // one file at a time. Falls back to sequential if proc_open is unavailable
+    // (e.g. disabled in php.ini) or PARSE_CONCURRENCY is 1.
+    //
+    // Each worker runs:
+    //   php artisan cpr:parse-file {filePath} {outputPath}
+    // and writes JSON to a temp file. The controller collects results once all
+    // workers finish.
+    //
+    // If you don't want the artisan command approach, replace the body of this
+    // method with a simple foreach that calls $parser->parse($file) directly —
+    // everything else in the controller stays the same.
+    //
+    private function parseFiles(array $files): array
+    {
+        if (empty($files)) {
+            return [];
+        }
+
+        // Sequential fallback — use this if the artisan command isn't set up yet.
+        if (self::PARSE_CONCURRENCY <= 1 || !function_exists('proc_open')) {
+            $parser  = new \App\Services\CprParser();
+            $results = [];
+            foreach ($files as $file) {
+                $results[basename($file)] = $parser->parse($file);
+            }
+            return $results;
+        }
+
+        // Parallel path ────────────────────────────────────────────────────
+        $phpBin    = PHP_BINARY;
+        $artisan   = base_path('artisan');
+        $tempDir   = sys_get_temp_dir();
+        $results   = [];
+        $running   = [];   // [filename => ['proc', 'outputFile', 'pipes']]
+
+        $queue = $files;   // mutable copy we pop from
+
+        $launch = function () use (&$queue, &$running, $phpBin, $artisan, $tempDir) {
+            if (empty($queue)) return;
+            $file     = array_shift($queue);
+            $filename = basename($file);
+            $outFile  = $tempDir . DIRECTORY_SEPARATOR . 'cpr_parse_' . md5($file) . '.json';
+
+            $cmd   = escapeshellcmd($phpBin) . ' '
+                   . escapeshellarg($artisan)
+                   . ' cpr:parse-file '
+                   . escapeshellarg($file)
+                   . ' '
+                   . escapeshellarg($outFile);
+
+            $proc = proc_open($cmd, [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']], $pipes);
+            if ($proc !== false) {
+                $running[$filename] = ['proc' => $proc, 'output' => $outFile, 'pipes' => $pipes];
+            }
+        };
+
+        // Seed the pool.
+        for ($i = 0; $i < self::PARSE_CONCURRENCY; $i++) {
+            $launch();
+        }
+
+        // Drain: whenever a worker finishes, collect its result and launch the next.
+        while (!empty($running)) {
+            foreach ($running as $filename => $job) {
+                $status = proc_get_status($job['proc']);
+                if ($status['running']) {
+                    continue;
+                }
+
+                // Worker finished.
+                proc_close($job['proc']);
+                foreach ([0, 1, 2] as $i) {
+                    if (isset($job['pipes'][$i]) && is_resource($job['pipes'][$i])) {
+                        fclose($job['pipes'][$i]);
+                    }
+                }
+
+                if (file_exists($job['output'])) {
+                    $json = @file_get_contents($job['output']);
+                    @unlink($job['output']);
+                    $decoded = $json ? json_decode($json, true) : null;
+                    $results[$filename] = $decoded ?: null;
+                } else {
+                    $results[$filename] = null;
+                    Log::warning("Parse worker produced no output for: {$filename}");
+                }
+
+                unset($running[$filename]);
+                $launch(); // Start next file immediately.
+            }
+            if (!empty($running)) {
+                usleep(20_000); // 20 ms poll interval — low CPU spin, minimal latency.
+            }
+        }
+
+        return $results;
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────────────
+
     private function existingToRow(CprRecord $existing, string $folderPath): array
     {
         return [
@@ -313,7 +414,7 @@ class CprController extends Controller
             'days_remaining'      => $existing->days_remaining,
             'status'              => $existing->status,
             'sort_order'          => $existing->sort_order ?? 0,
-            'updated_at'          => $existing->updated_at, // preserve — file didn't change
+            'updated_at'          => $existing->updated_at,
             'created_at'          => $existing->created_at,
         ];
     }
@@ -341,6 +442,8 @@ class CprController extends Controller
 
         return ucwords($generic) . " - {$brand} - {$expiry}";
     }
+
+    // ── openPdf ──────────────────────────────────────────────────────────────
 
     public function openPdf(Request $request)
     {
@@ -377,6 +480,14 @@ class CprController extends Controller
         ]);
     }
 
+    // ── SSE Progress ─────────────────────────────────────────────────────────
+    //
+    // NOTE: This endpoint streams file *classification* status (DB hit vs parse
+    // needed) — it does not track the actual parse progress of individual files.
+    // To get true per-file progress you'd need shared state (Redis/cache) that
+    // the parse workers write to as they finish, and this endpoint reads from.
+    // That's a larger change; this keeps the existing SSE contract intact.
+    //
     public function progress(Request $request)
     {
         $sessionPath = session('last_folder_path');
@@ -389,6 +500,7 @@ class CprController extends Controller
 
         header('Content-Type: text/event-stream');
         header('Cache-Control: no-cache');
+        header('X-Accel-Buffering: no');
 
         if (!$folderPath || !$sessionPath || $folderPath !== $sessionPath) {
             $sendEvent(['msg' => 'Invalid folder path.', 'done' => true]);
@@ -405,8 +517,6 @@ class CprController extends Controller
             $sendEvent(['msg' => 'Forbidden path.', 'done' => true]);
             return;
         }
-
-        header('X-Accel-Buffering: no');
 
         $files = glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
         $total = count($files);
@@ -435,9 +545,6 @@ class CprController extends Controller
                 'total'   => $total,
                 'done'    => false,
             ]);
-
-            // usleep removed — 300ms × 500 files was 150 seconds of mandatory
-            // waiting before the actual scan could write anything to the DB.
         }
 
         $sendEvent(['msg' => '✅ Scan complete!', 'done' => true]);
