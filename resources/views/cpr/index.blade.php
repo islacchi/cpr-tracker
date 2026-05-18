@@ -194,13 +194,31 @@
     </div>
     @endif
 
+
+    {{-- Success Toast --}}
+    @if(session('success'))
+    <div id="success-notice" class="fixed top-6 left-1/2 -translate-x-1/2 z-40 bg-green-50 border border-green-200 rounded-xl shadow-lg px-6 py-4 text-green-800 text-sm font-medium">
+        {{ session('success') }}
+    </div>
+    <script>
+        setTimeout(() => {
+            const n = document.getElementById('success-notice');
+            if (n) { n.style.opacity = '0'; setTimeout(() => n.remove(), 300); }
+        }, 3000);
+    </script>
+    @endif
+
+
     {{-- ── Main Content ───────────────────────────────────────────── --}}
     <div class="max-w-7xl mx-auto">
 
         <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold text-gray-800">📋 CPR Expiry Tracker</h1>
-            <button onclick="toggleDarkMode()" id="dark-toggle"
-                class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium bg-white text-gray-700 hover:bg-gray-100 transition">
+            <h1 class="text-3xl font-bold text-gray-800">CPR Expiry Tracker</h1>
+            <button
+                onclick="toggleDarkMode()"
+                id="dark-toggle"
+                class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium bg-white text-gray-700 hover:bg-gray-100 transition"
+            >
                 🌙 Dark Mode
             </button>
         </div>
@@ -234,6 +252,7 @@
                 <table class="w-full">
                     <thead class="bg-gray-50">
                         <tr>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Actions</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">File</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Reg. Number</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Brand Name</th>
@@ -241,6 +260,7 @@
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Expiry Date</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Days Left</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Status</th>
+                            <!-- <th>OCR Confidence</th> -->
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200">
@@ -249,6 +269,12 @@
                                 class="{{ $loop->even ? 'bg-orange-50' : 'bg-white' }} hover:bg-orange-100 cursor-pointer"
                                 onclick="window.open('{{ route('cpr.open', ['folder_path' => $folderPath, 'filename' => $cpr['filename']]) }}', '_blank')"
                             >
+                         <td class="px-4 py-3" onclick="event.stopPropagation()">
+                            <a href="{{ route('cpr.edit', $cpr['id']) }}"
+                                class="px-3 py-1 text-xs font-medium rounded-lg bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition">
+                                ✏️ Edit
+                            </a>
+                        </td>
                                 <td class="px-4 py-3 text-sm text-gray-800">
                                     {{ $cpr['normalized_filename'] ?? $cpr['filename'] }}
                                     <div class="text-xs text-gray-400">{{ $cpr['filename'] }}</div>
@@ -281,6 +307,22 @@
                                         {{ $cpr['status'] ?? 'Unknown' }}
                                     </span>
                                 </td>
+                                <!-- <td class="px-4 py-3 text-sm">
+                            @php
+                                $confidence = $cpr['ocr_confidence'] ?? 0;
+
+                                $badge = match(true) {
+                                    $confidence >= 90 => 'bg-green-100 text-green-800',
+                                    $confidence >= 75 => 'bg-yellow-100 text-yellow-800',
+                                    default           => 'bg-red-100 text-red-800',
+                                };
+                            @endphp
+
+                            <span class="px-2 py-1 rounded-full text-xs font-medium {{ $badge }}">
+                                {{ $confidence }}%
+                            </span>
+                            </td> -->
+
                             </tr>
                         @endforeach
                     </tbody>

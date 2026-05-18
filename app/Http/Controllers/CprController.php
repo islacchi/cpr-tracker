@@ -15,25 +15,24 @@ class CprController extends Controller
     private const PARSE_CONCURRENCY = 4;
 
     public function index()
-    {
-        return view('cpr.index', [
-            'results'             => [],
-            'folder_path'         => null,
-            'folderPath'          => null,
-            'perPage'             => 10,
-            'page'                => 1,
-            'total'               => 0,
-            'lastPage'            => 1,
-            'fromDb'              => 0,
-            'fromPdf'             => 0,
-            'duplicates'          => [],
-            'summaryValid'        => 0,
-            'summaryExpiringSoon' => 0,
-            'summaryExpired'      => 0,
-            'summaryErrors'       => 0,
-        ]);
-    }
-
+{
+    return view('cpr.index', [
+        'results'             => [],
+        'folder_path'         => null,
+        'folderPath'          => null,
+        'perPage'             => 10,
+        'page'                => 1,
+        'total'               => 0,
+        'lastPage'            => 1,
+        'fromDb'              => 0,
+        'fromPdf'             => 0,
+        'duplicates'          => [],
+        'summaryValid'        => 0,
+        'summaryExpiringSoon' => 0,
+        'summaryExpired'      => 0,
+        'summaryErrors'       => 0,
+    ]);
+}
     public function scan(Request $request)
     {
         set_time_limit(0);
@@ -479,16 +478,59 @@ class CprController extends Controller
             'Cache-Control'       => 'no-cache',
         ]);
     }
+public function edit($id)
+{
+    $cpr = \App\Models\CprRecord::findOrFail($id);
+    return view('cpr.edit', compact('cpr'));
+}
 
-    // ── SSE Progress ─────────────────────────────────────────────────────────
-    //
-    // NOTE: This endpoint streams file *classification* status (DB hit vs parse
-    // needed) — it does not track the actual parse progress of individual files.
-    // To get true per-file progress you'd need shared state (Redis/cache) that
-    // the parse workers write to as they finish, and this endpoint reads from.
-    // That's a larger change; this keeps the existing SSE contract intact.
-    //
-    public function progress(Request $request)
+public function update(Request $request, $id)
+{
+    $cpr = \App\Models\CprRecord::findOrFail($id);
+
+    $request->validate([
+        'registration_number' => 'nullable|string',
+        'brand_name'          => 'nullable|string',
+        'generic_name'        => 'nullable|string',
+        'expiry_date'         => 'nullable|date',
+    ]);
+
+    $expiryDate    = $request->input('expiry_date');
+    $daysRemaining = null;
+    $status        = 'Unknown';
+
+    if ($expiryDate) {
+        $expiry        = \Carbon\Carbon::parse($expiryDate);
+        $daysRemaining = (int) now()->startOfDay()->diffInDays($expiry, false);
+        $status        = match(true) {
+            $daysRemaining < 0    => 'Expired',
+            $daysRemaining <= 90  => 'Expiring Soon',
+            default               => 'Valid',
+        };
+    }
+
+    $normalizedFilename = $this->normalizeFilename(
+        $request->input('generic_name'),
+        $request->input('brand_name'),
+        $expiryDate
+    );
+
+    $cpr->update([
+        'registration_number' => $request->input('registration_number'),
+        'brand_name'          => $request->input('brand_name'),
+        'generic_name'        => $request->input('generic_name'),
+        'expiry_date'         => $expiryDate,
+        'days_remaining'      => $daysRemaining,
+        'status'              => $status,
+        'normalized_filename' => $normalizedFilename,
+    ]);
+
+    // Store success message
+session(['success' => '✅ CPR record updated successfully!']);
+    return redirect()->route('cpr.results');
+}
+
+public function progress(Request $request)
     {
         $sessionPath = session('last_folder_path');
         $folderPath  = $request->input('folder_path');
@@ -549,4 +591,44 @@ class CprController extends Controller
 
         $sendEvent(['msg' => '✅ Scan complete!', 'done' => true]);
     }
+    public function results(Request $request)
+{
+    $folderPath = session('last_folder_path');
+
+    if (!$folderPath) {
+        return redirect()->route('cpr.index');
+    }
+
+    $perPage  = (int) $request->input('per_page', 10);
+    $page     = (int) $request->input('page', 1);
+    $total    = \App\Models\CprRecord::where('folder_path', $folderPath)->count();
+    $lastPage = (int) ceil($total / $perPage);
+    $records  = \App\Models\CprRecord::where('folder_path', $folderPath)
+        ->orderByRaw('CAST(REGEXP_SUBSTR(filename, "^[0-9]+") AS UNSIGNED) ASC')
+        ->skip(($page - 1) * $perPage)
+        ->take($perPage)
+        ->get()
+        ->toArray();
+
+    $summaryValid        = \App\Models\CprRecord::where('folder_path', $folderPath)->where('status', 'Valid')->count();
+    $summaryExpiringSoon = \App\Models\CprRecord::where('folder_path', $folderPath)->where('status', 'Expiring Soon')->count();
+    $summaryExpired      = \App\Models\CprRecord::where('folder_path', $folderPath)->where('status', 'Expired')->count();
+    $summaryErrors       = \App\Models\CprRecord::where('folder_path', $folderPath)->whereIn('status', ['Parse Error', 'Unknown'])->count();
+
+    return view('cpr.index', [
+        'results'             => $records,
+        'folderPath'          => $folderPath,
+        'perPage'             => $perPage,
+        'page'                => $page,
+        'total'               => $total,
+        'lastPage'            => $lastPage,
+        'fromDb'              => 0,
+        'fromPdf'             => 0,
+        'duplicates'          => [],
+        'summaryValid'        => $summaryValid,
+        'summaryExpiringSoon' => $summaryExpiringSoon,
+        'summaryExpired'      => $summaryExpired,
+        'summaryErrors'       => $summaryErrors,
+    ]);
+}
 }
