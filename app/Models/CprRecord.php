@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -9,7 +10,7 @@ class CprRecord extends Model
 {
     protected $fillable = [
         'filename',
-         'normalized_filename', 
+        'normalized_filename',
         'folder_path',
         'registration_number',
         'brand_name',
@@ -17,12 +18,15 @@ class CprRecord extends Model
         'expiry_date',
         'days_remaining',
         'status',
+        'sort_order',           // ← added; required by scan upsert
     ];
 
     protected $casts = [
         'expiry_date'    => 'date',
         'days_remaining' => 'integer',
     ];
+
+    // ── Scopes ───────────────────────────────────────────────────────────────
 
     public function scopeValid(Builder $query): Builder
     {
@@ -44,21 +48,68 @@ class CprRecord extends Model
         return $query->whereIn('status', ['Parse Error', 'Unknown']);
     }
 
-    public function computeStatus(int $warningDays = 90): void
+    // ── Status calculation ───────────────────────────────────────────────────
+
+    /**
+     * Static — returns a plain array.
+     * Used by CprScanService, CprController::update(), and RefreshCprStatus
+     * so none of them duplicate the match() logic.
+     *
+     * Accepts a date string (from parsed PDF data or form input).
+     * The $warningDays threshold defaults to 90 but is overridable.
+     *
+     * @return array{days_remaining: int|null, status: string}
+     */
+    public static function resolveStatus(?string $expiryDate, int $warningDays = 90): array
     {
-        if (!$this->expiry_date) {
-            $this->days_remaining = null;
-            $this->status = 'Unknown';
-            return;
+        if (!$expiryDate) {
+            return ['days_remaining' => null, 'status' => 'Unknown'];
         }
 
-        $this->days_remaining = (int) now()->startOfDay()
-            ->diffInDays($this->expiry_date, false);
+        $expiry        = Carbon::parse($expiryDate);
+        $daysRemaining = (int) now()->startOfDay()->diffInDays($expiry, false);
 
-        $this->status = match(true) {
-            $this->days_remaining < 0             => 'Expired',
-            $this->days_remaining <= $warningDays => 'Expiring Soon',
-            default                               => 'Valid',
-        };
+        return [
+            'days_remaining' => $daysRemaining,
+            'status'         => match (true) {
+                $daysRemaining < 0             => 'Expired',
+                $daysRemaining <= $warningDays => 'Expiring Soon',
+                default                        => 'Valid',
+            },
+        ];
+    }
+
+    /**
+     * Instance — mutates the model in place.
+     * Delegates to resolveStatus() so the threshold logic stays in one place.
+     */
+    public function computeStatus(int $warningDays = 90): void
+    {
+        $computed             = static::resolveStatus(
+            $this->expiry_date?->toDateString(),
+            $warningDays
+        );
+        $this->days_remaining = $computed['days_remaining'];
+        $this->status         = $computed['status'];
+    }
+
+    // ── Filename helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Build the human-readable display name stored alongside each record.
+     * Used by CprScanService (on parse) and CprController::update() (on edit).
+     */
+    public static function buildNormalizedFilename(
+        ?string $genericName,
+        ?string $brandName,
+        ?string $expiryDate
+    ): string {
+        $generic = $genericName ? strtolower(trim($genericName)) : 'unknown';
+        $brand   = $brandName   ? strtoupper(trim($brandName))   : 'UNKNOWN';
+        $expiry  = $expiryDate
+            ? Carbon::parse($expiryDate)->format('M Y')
+            : 'No Expiry';
+
+        return ucwords($generic) . " - {$brand} - {$expiry}";
     }
 }

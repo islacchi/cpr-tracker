@@ -86,6 +86,8 @@
     </div>
     @endif
 
+    
+
     {{-- ── Duplicates Modal ──────────────────────────────────────── --}}
     @if(isset($duplicates) && count($duplicates) > 0)
     <div id="duplicates-modal" class="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50">
@@ -162,7 +164,7 @@
             <div id="modal-footer-default" class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 shrink-0">
                 <button onclick="showRescanConfirm()"
                     class="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition">
-                    Re-scan All
+                    Update
                 </button>
                 <button onclick="closeDuplicatesModal()"
                     class="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
@@ -270,9 +272,9 @@
                                 onclick="window.open('{{ route('cpr.open', ['folder_path' => $folderPath, 'filename' => $cpr['filename']]) }}', '_blank')"
                             >
                          <td class="px-4 py-3" onclick="event.stopPropagation()">
-                            <a href="{{ route('cpr.edit', $cpr['id']) }}"
+                            <a href="{{ route('cpr.edit', ['id' => $cpr['id'], 'page' => $page, 'per_page' => $perPage]) }}"
                                 class="px-3 py-1 text-xs font-medium rounded-lg bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition">
-                                ✏️ Edit
+                                Edit
                             </a>
                         </td>
                                 <td class="px-4 py-3 text-sm text-gray-800">
@@ -344,11 +346,10 @@
                         @elseif($isDisabled)
                             <span class="px-3 py-1 text-sm rounded-lg border bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed">{{ $size }}</span>
                         @else
-                            <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                                @csrf
+                            <form action="{{ route('cpr.results') }}" method="GET" class="inline">
                                 <input type="hidden" name="per_page" value="{{ $size }}">
                                 <input type="hidden" name="page" value="1">
-                                <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $size }}</button>
+                                <button ...>{{ $size }}</button>
                             </form>
                         @endif
                     @endforeach
@@ -359,11 +360,10 @@
 
                 <div class="flex items-center gap-2">
                     @if($page > 1)
-                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                            @csrf
-                            <input type="hidden" name="per_page" value="{{ $perPage }}">
-                            <input type="hidden" name="page" value="{{ $page - 1 }}">
-                            <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">← Prev</button>
+                        <form action="{{ route('cpr.results') }}" method="GET" class="inline">
+                            <input type="hidden" name="per_page" value="{{ $size }}">
+                            <input type="hidden" name="page" value="1">
+                            <button ...>{{ $size }}</button>
                         </form>
                     @endif
 
@@ -371,21 +371,19 @@
                         @if($page == $i)
                             <span class="px-3 py-1 text-sm rounded-lg border bg-blue-600 text-white border-blue-600 cursor-default">{{ $i }}</span>
                         @else
-                            <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                                @csrf
-                                <input type="hidden" name="per_page" value="{{ $perPage }}">
-                                <input type="hidden" name="page" value="{{ $i }}">
-                                <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $i }}</button>
+                            <form action="{{ route('cpr.results') }}" method="GET" class="inline">
+                                <input type="hidden" name="per_page" value="{{ $size }}">
+                                <input type="hidden" name="page" value="1">
+                                <button ...>{{ $size }}</button>
                             </form>
                         @endif
                     @endfor
 
                     @if($page < $lastPage)
-                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
-                            @csrf
-                            <input type="hidden" name="per_page" value="{{ $perPage }}">
-                            <input type="hidden" name="page" value="{{ $page + 1 }}">
-                            <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">Next →</button>
+                        <form action="{{ route('cpr.results') }}" method="GET" class="inline">
+                            <input type="hidden" name="per_page" value="{{ $size }}">
+                            <input type="hidden" name="page" value="1">
+                            <button ...>{{ $size }}</button>
                         </form>
                     @endif
                 </div>

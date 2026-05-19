@@ -2,283 +2,60 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\CprScanRequest;
+use App\Http\Requests\CprUpdateRequest;
 use App\Models\CprRecord;
+use App\Services\CprScanService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
 class CprController extends Controller
 {
-    // ── How many files to parse in parallel via proc_open.
-    //    Tune this to your CPU core count. 4 is safe on most servers.
-    private const PARSE_CONCURRENCY = 4;
+    public function __construct(private readonly CprScanService $scanService) {}
+
+    // ── Index ────────────────────────────────────────────────────────────────
 
     public function index()
-{
-    return view('cpr.index', [
-        'results'             => [],
-        'folder_path'         => null,
-        'folderPath'          => null,
-        'perPage'             => 10,
-        'page'                => 1,
-        'total'               => 0,
-        'lastPage'            => 1,
-        'fromDb'              => 0,
-        'fromPdf'             => 0,
-        'duplicates'          => [],
-        'summaryValid'        => 0,
-        'summaryExpiringSoon' => 0,
-        'summaryExpired'      => 0,
-        'summaryErrors'       => 0,
-    ]);
-}
-    public function scan(Request $request)
     {
-        set_time_limit(0);
-        ini_set('memory_limit', '512M');
+        return view('cpr.index', CprScanService::emptyViewData());
+    }
 
-        $perPage = (int) $request->input('per_page', 10);
-        $page    = (int) $request->input('page', 1);
+    // ── Scan ─────────────────────────────────────────────────────────────────
 
-        $isPagination = $request->has('page') || $request->has('per_page');
-        $folderPath   = $isPagination
-            ? session('last_folder_path')
-            : $request->input('folder_path');
+    public function scan(CprScanRequest $request)
+    {
+        $folderPath = $this->resolveFolderPath($request);
 
-        if (!$isPagination) {
-            $request->validate(['folder_path' => 'required|string|max:500']);
-        }
-
-        $folderPath = rtrim(trim((string) $folderPath), DIRECTORY_SEPARATOR);
-
-        if (empty($folderPath)) {
+        if (!$folderPath) {
             return redirect()->route('cpr.index')
                 ->withErrors(['folder_path' => 'Please enter a folder path before scanning.'])
                 ->withInput();
         }
-        if (!file_exists($folderPath)) {
-            return redirect()->route('cpr.index')
-                ->withErrors(['folder_path' => '❌ Folder not found. Please check the path and try again.'])
-                ->withInput();
-        }
-        if (!is_dir($folderPath)) {
-            return redirect()->route('cpr.index')
-                ->withErrors(['folder_path' => '❌ The path points to a file, not a folder.'])
-                ->withInput();
-        }
-        if (!is_readable($folderPath)) {
-            return redirect()->route('cpr.index')
-                ->withErrors(['folder_path' => '❌ Folder exists but cannot be read. Check permissions.'])
-                ->withInput();
-        }
 
-        $dangerousPaths = ['/', 'C:\\', 'C:/', sys_get_temp_dir()];
-        if (in_array(rtrim($folderPath, '/\\'), array_map(fn($p) => rtrim($p, '/\\'), $dangerousPaths), true)) {
+        $validationError = $this->scanService->validateFolder($folderPath);
+        if ($validationError) {
             return redirect()->route('cpr.index')
-                ->withErrors(['folder_path' => '❌ Scanning this directory is not allowed.'])
-                ->withInput();
-        }
-
-        $files = glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
-
-        if (empty($files)) {
-            return redirect()->route('cpr.index')
-                ->withErrors(['folder_path' => '⚠️ No PDF files found in this folder.'])
-                ->withInput();
-        }
-        if (count($files) > 500) {
-            return redirect()->route('cpr.index')
-                ->withErrors(['folder_path' => '⚠️ Too many files (' . count($files) . '). Maximum allowed is 500 PDFs per scan.'])
+                ->withErrors(['folder_path' => $validationError])
                 ->withInput();
         }
 
         session(['last_folder_path' => $folderPath]);
 
-        if ($request->input('force_rescan')) {
-            CprRecord::whereIn('filename', collect($files)->map(fn($f) => basename($f))->toArray())
-                ->delete();
-            session()->flash('rescan_success', 'All records have been wiped and re-parsed successfully.');
-        }
+        $isPagination = $request->isPagination();
+        $perPage      = (int) $request->input('per_page', 10);
+        $page         = (int) $request->input('page', 1);
 
-        $isFreshScan = !$isPagination;
-        $fromDb      = 0;
-        $fromPdf     = 0;
-        $duplicates  = [];
-
-        if ($isFreshScan) {
-            $filenames       = collect($files)->map(fn($f) => basename($f))->toArray();
-            $existingRecords = CprRecord::whereIn('filename', $filenames)
-                ->whereNotNull('registration_number')
-                ->whereNotNull('expiry_date')
-                ->get()
-                ->keyBy('filename');
-
-            // ── PASS 1: classify files into cache-hits vs needs-parse ──────────
-            // Cache hits are skipped from the upsert entirely when folder_path
-            // hasn't moved — eliminates the N-row no-op write the old code did.
-            $rowsToUpsert = [];
-            $filesToParse = [];
-
-            foreach ($files as $file) {
-                $filename = basename($file);
-
-                if (!is_readable($file)) {
-                    Log::warning('Skipping unreadable file: ' . $filename);
-                    continue;
-                }
-                if (filesize($file) === 0) {
-                    Log::warning('Skipping empty file: ' . $filename);
-                    continue;
-                }
-
-                $existing = $existingRecords->get($filename);
-
-                if ($existing) {
-                    $fileModified  = Carbon::createFromTimestamp(filemtime($file))->utc();
-                    $recordUpdated = Carbon::parse($existing->updated_at)->utc();
-
-                    if ($fileModified->lte($recordUpdated)) {
-                        // File unchanged. Only touch DB if the folder moved.
-                        if ($existing->folder_path !== $folderPath) {
-                            $row                = $this->existingToRow($existing, $folderPath);
-                            $row['updated_at']  = now();
-                            $rowsToUpsert[]     = $row;
-                        }
-                        $duplicates[] = $this->existingToDuplicate($existing, $filename);
-                        $fromDb++;
-                        continue;
-                    }
-                }
-
-                $filesToParse[] = $file;
-            }
-
-            // ── PASS 2: parse only files that actually need it ─────────────────
-            // Parallel when PARSE_CONCURRENCY > 1 and proc_open is available.
-            $parsedResults = $this->parseFiles($filesToParse);
-
-            $now = now();
-            foreach ($filesToParse as $file) {
-                $filename = basename($file);
-                $parsed   = $parsedResults[$filename] ?? null;
-                $existing = $existingRecords->get($filename);
-
-                // File was re-read but values are identical — skip the write.
-                if ($existing && $parsed !== null) {
-                    $valuesMatch =
-                        $existing->registration_number === $parsed['registration_number'] &&
-                        Carbon::parse($existing->expiry_date)->toDateString()
-                            === Carbon::parse($parsed['expiry_date'])->toDateString();
-
-                    if ($valuesMatch && $existing->folder_path === $folderPath) {
-                        $duplicates[] = $this->existingToDuplicate($existing, $filename);
-                        $fromDb++;
-                        continue;
-                    }
-                }
-
-                if ($parsed === null) {
-                    Log::warning('Skipping file — no parse result: ' . $filename);
-                    continue;
-                }
-
-                $daysRemaining = null;
-                $status        = $parsed['status'];
-
-                if ($parsed['expiry_date']) {
-                    $expiry        = Carbon::parse($parsed['expiry_date']);
-                    $daysRemaining = (int) now()->startOfDay()->diffInDays($expiry, false);
-                    $status        = match (true) {
-                        $daysRemaining < 0   => 'Expired',
-                        $daysRemaining <= 90 => 'Expiring Soon',
-                        default              => 'Valid',
-                    };
-                }
-
-                $normalizedFilename = $this->normalizeFilename(
-                    $parsed['generic_name'],
-                    $parsed['brand_name'],
-                    $parsed['expiry_date']
-                );
-
-                preg_match('/^(\d+)/', $filename, $matches);
-                $sortOrder = isset($matches[1]) ? (int) $matches[1] : 0;
-
-                $rowsToUpsert[] = [
-                    'filename'            => $filename,
-                    'folder_path'         => $folderPath,
-                    'normalized_filename' => $normalizedFilename,
-                    'registration_number' => $parsed['registration_number'],
-                    'brand_name'          => $parsed['brand_name'],
-                    'generic_name'        => $parsed['generic_name'],
-                    'expiry_date'         => $parsed['expiry_date'],
-                    'days_remaining'      => $daysRemaining,
-                    'status'              => $status,
-                    'sort_order'          => $sortOrder,
-                    'updated_at'          => $now,
-                    'created_at'          => $now,
-                ];
-
-                $fromPdf++;
-            }
-
-            // ── Single write, no transaction needed for upsert on a unique key.
-            // Chunked to stay under MySQL's max_allowed_packet on large folders.
-            if (!empty($rowsToUpsert)) {
-                foreach (array_chunk($rowsToUpsert, 100) as $chunk) {
-                    DB::table('cpr_records')->upsert(
-                        $chunk,
-                        ['filename'],
-                        [
-                            'folder_path',
-                            'normalized_filename',
-                            'registration_number',
-                            'brand_name',
-                            'generic_name',
-                            'expiry_date',
-                            'days_remaining',
-                            'status',
-                            'sort_order',
-                            'updated_at',
-                        ]
-                    );
-                }
-            }
-
-            // Summary counts — one aggregate query, cached in session.
-            $summaryCounts = CprRecord::where('folder_path', $folderPath)
-                ->selectRaw("
-                    SUM(status = 'Valid')                        as valid,
-                    SUM(status = 'Expiring Soon')                as expiring_soon,
-                    SUM(status = 'Expired')                      as expired,
-                    SUM(status IN ('Parse Error', 'Unknown'))    as errors
-                ")
-                ->first();
-
-            session([
-                'scan_from_db'     => $fromDb,
-                'scan_from_pdf'    => $fromPdf,
-                'summary_valid'    => (int) ($summaryCounts->valid ?? 0),
-                'summary_expiring' => (int) ($summaryCounts->expiring_soon ?? 0),
-                'summary_expired'  => (int) ($summaryCounts->expired ?? 0),
-                'summary_errors'   => (int) ($summaryCounts->errors ?? 0),
-            ]);
-
-        } else {
+        if ($isPagination) {
             $fromDb  = session('scan_from_db', 0);
             $fromPdf = session('scan_from_pdf', 0);
+        } else {
+            [$fromDb, $fromPdf] = $this->scanService->runScan($folderPath, (bool) $request->input('force_rescan'));
+
+            if ($request->input('force_rescan')) {
+                session()->flash('rescan_success', 'All records have been wiped and re-parsed successfully.');
+            }
         }
 
-        $total    = CprRecord::where('folder_path', $folderPath)->count();
-        $lastPage = (int) ceil($total / $perPage);
-
-        $records = CprRecord::where('folder_path', $folderPath)
-            ->orderBy('sort_order', 'asc')
-            ->skip(($page - 1) * $perPage)
-            ->take($perPage)
-            ->get()
-            ->toArray();
+        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage);
 
         return view('cpr.index', [
             'results'             => $records,
@@ -289,7 +66,7 @@ class CprController extends Controller
             'lastPage'            => $lastPage,
             'fromDb'              => $fromDb,
             'fromPdf'             => $fromPdf,
-            'duplicates'          => $duplicates,
+            'duplicates'          => session('scan_duplicates', []),
             'summaryValid'        => session('summary_valid', 0),
             'summaryExpiringSoon' => session('summary_expiring', 0),
             'summaryExpired'      => session('summary_expired', 0),
@@ -297,152 +74,82 @@ class CprController extends Controller
         ]);
     }
 
-    // ── Parallel PDF parser ──────────────────────────────────────────────────
-    //
-    // Spawns up to PARSE_CONCURRENCY concurrent artisan workers, each parsing
-    // one file at a time. Falls back to sequential if proc_open is unavailable
-    // (e.g. disabled in php.ini) or PARSE_CONCURRENCY is 1.
-    //
-    // Each worker runs:
-    //   php artisan cpr:parse-file {filePath} {outputPath}
-    // and writes JSON to a temp file. The controller collects results once all
-    // workers finish.
-    //
-    // If you don't want the artisan command approach, replace the body of this
-    // method with a simple foreach that calls $parser->parse($file) directly —
-    // everything else in the controller stays the same.
-    //
-    private function parseFiles(array $files): array
+    // ── Results (post-edit redirect target) ──────────────────────────────────
+
+    /**
+     * Display the current folder's results without re-scanning.
+     * Used as the redirect target after edit/update so the user
+     * lands back on the table they came from.
+     */
+    public function results(Request $request)
     {
-        if (empty($files)) {
-            return [];
+        $folderPath = session('last_folder_path');
+
+        if (!$folderPath) {
+            return redirect()->route('cpr.index');
         }
 
-        // Sequential fallback — use this if the artisan command isn't set up yet.
-        if (self::PARSE_CONCURRENCY <= 1 || !function_exists('proc_open')) {
-            $parser  = new \App\Services\CprParser();
-            $results = [];
-            foreach ($files as $file) {
-                $results[basename($file)] = $parser->parse($file);
-            }
-            return $results;
-        }
+        $perPage = (int) $request->input('per_page', 10);
+        $page    = (int) $request->input('page', 1);
 
-        // Parallel path ────────────────────────────────────────────────────
-        $phpBin    = PHP_BINARY;
-        $artisan   = base_path('artisan');
-        $tempDir   = sys_get_temp_dir();
-        $results   = [];
-        $running   = [];   // [filename => ['proc', 'outputFile', 'pipes']]
+        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage);
+        $counts = $this->scanService->summaryCounts($folderPath);
 
-        $queue = $files;   // mutable copy we pop from
-
-        $launch = function () use (&$queue, &$running, $phpBin, $artisan, $tempDir) {
-            if (empty($queue)) return;
-            $file     = array_shift($queue);
-            $filename = basename($file);
-            $outFile  = $tempDir . DIRECTORY_SEPARATOR . 'cpr_parse_' . md5($file) . '.json';
-
-            $cmd   = escapeshellcmd($phpBin) . ' '
-                   . escapeshellarg($artisan)
-                   . ' cpr:parse-file '
-                   . escapeshellarg($file)
-                   . ' '
-                   . escapeshellarg($outFile);
-
-            $proc = proc_open($cmd, [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']], $pipes);
-            if ($proc !== false) {
-                $running[$filename] = ['proc' => $proc, 'output' => $outFile, 'pipes' => $pipes];
-            }
-        };
-
-        // Seed the pool.
-        for ($i = 0; $i < self::PARSE_CONCURRENCY; $i++) {
-            $launch();
-        }
-
-        // Drain: whenever a worker finishes, collect its result and launch the next.
-        while (!empty($running)) {
-            foreach ($running as $filename => $job) {
-                $status = proc_get_status($job['proc']);
-                if ($status['running']) {
-                    continue;
-                }
-
-                // Worker finished.
-                proc_close($job['proc']);
-                foreach ([0, 1, 2] as $i) {
-                    if (isset($job['pipes'][$i]) && is_resource($job['pipes'][$i])) {
-                        fclose($job['pipes'][$i]);
-                    }
-                }
-
-                if (file_exists($job['output'])) {
-                    $json = @file_get_contents($job['output']);
-                    @unlink($job['output']);
-                    $decoded = $json ? json_decode($json, true) : null;
-                    $results[$filename] = $decoded ?: null;
-                } else {
-                    $results[$filename] = null;
-                    Log::warning("Parse worker produced no output for: {$filename}");
-                }
-
-                unset($running[$filename]);
-                $launch(); // Start next file immediately.
-            }
-            if (!empty($running)) {
-                usleep(20_000); // 20 ms poll interval — low CPU spin, minimal latency.
-            }
-        }
-
-        return $results;
+        return view('cpr.index', [
+            'results'             => $records,
+            'folderPath'          => $folderPath,
+            'perPage'             => $perPage,
+            'page'                => $page,
+            'total'               => $total,
+            'lastPage'            => $lastPage,
+            'fromDb'              => 0,
+            'fromPdf'             => 0,
+            'duplicates'          => [],
+            'summaryValid'        => $counts['valid'],
+            'summaryExpiringSoon' => $counts['expiring'],
+            'summaryExpired'      => $counts['expired'],
+            'summaryErrors'       => $counts['errors'],
+        ]);
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────────
+    // ── Edit / Update ────────────────────────────────────────────────────────
 
-    private function existingToRow(CprRecord $existing, string $folderPath): array
+    public function edit(int $id)
     {
-        return [
-            'filename'            => $existing->filename,
-            'folder_path'         => $folderPath,
-            'normalized_filename' => $existing->normalized_filename,
-            'registration_number' => $existing->registration_number,
-            'brand_name'          => $existing->brand_name,
-            'generic_name'        => $existing->generic_name,
-            'expiry_date'         => $existing->expiry_date,
-            'days_remaining'      => $existing->days_remaining,
-            'status'              => $existing->status,
-            'sort_order'          => $existing->sort_order ?? 0,
-            'updated_at'          => $existing->updated_at,
-            'created_at'          => $existing->created_at,
-        ];
+        $cpr = CprRecord::findOrFail($id);
+        $this->authorizeRecord($cpr);
+
+        return view('cpr.edit', compact('cpr'));
     }
 
-    private function existingToDuplicate(CprRecord $existing, string $filename): array
+    public function update(CprUpdateRequest $request, int $id)
     {
-        return [
-            'filename'            => $filename,
-            'normalized_filename' => $existing->normalized_filename,
-            'registration_number' => $existing->registration_number,
-            'brand_name'          => $existing->brand_name,
-            'generic_name'        => $existing->generic_name,
-            'expiry_date'         => $existing->expiry_date,
-            'status'              => $existing->status,
-        ];
+        $cpr = CprRecord::findOrFail($id);
+        $this->authorizeRecord($cpr);
+
+        $expiryDate = $request->input('expiry_date');
+        $computed   = CprRecord::resolveStatus($expiryDate);
+
+        $cpr->update([
+            'registration_number' => $request->input('registration_number'),
+            'brand_name'          => $request->input('brand_name'),
+            'generic_name'        => $request->input('generic_name'),
+            'expiry_date'         => $expiryDate,
+            'days_remaining'      => $computed['days_remaining'],
+            'status'              => $computed['status'],
+            'normalized_filename' => CprRecord::buildNormalizedFilename(
+                $request->input('generic_name'),
+                $request->input('brand_name'),
+                $expiryDate
+            ),
+        ]);
+
+        session()->flash('success', '✅ CPR record updated successfully!');
+
+        return redirect()->route('cpr.results');
     }
 
-    private function normalizeFilename(?string $genericName, ?string $brandName, ?string $expiryDate): string
-    {
-        $generic = $genericName ? strtolower(trim($genericName)) : 'unknown';
-        $brand   = $brandName   ? strtoupper(trim($brandName))   : 'UNKNOWN';
-        $expiry  = $expiryDate
-            ? Carbon::parse($expiryDate)->format('M Y')
-            : 'No Expiry';
-
-        return ucwords($generic) . " - {$brand} - {$expiry}";
-    }
-
-    // ── openPdf ──────────────────────────────────────────────────────────────
+    // ── Open PDF ─────────────────────────────────────────────────────────────
 
     public function openPdf(Request $request)
     {
@@ -456,11 +163,7 @@ class CprController extends Controller
         $folderReal = realpath($folderPath);
         $filePath   = realpath($folderPath . DIRECTORY_SEPARATOR . $filename);
 
-        if (
-            !$folderReal ||
-            !$filePath   ||
-            !str_starts_with($filePath, $folderReal . DIRECTORY_SEPARATOR)
-        ) {
+        if (!$folderReal || !$filePath || !str_starts_with($filePath, $folderReal . DIRECTORY_SEPARATOR)) {
             abort(403, 'Access denied.');
         }
 
@@ -478,85 +181,35 @@ class CprController extends Controller
             'Cache-Control'       => 'no-cache',
         ]);
     }
-public function edit($id)
-{
-    $cpr = \App\Models\CprRecord::findOrFail($id);
-    return view('cpr.edit', compact('cpr'));
-}
 
-public function update(Request $request, $id)
-{
-    $cpr = \App\Models\CprRecord::findOrFail($id);
+    // ── SSE Progress ─────────────────────────────────────────────────────────
 
-    $request->validate([
-        'registration_number' => 'nullable|string',
-        'brand_name'          => 'nullable|string',
-        'generic_name'        => 'nullable|string',
-        'expiry_date'         => 'nullable|date',
-    ]);
-
-    $expiryDate    = $request->input('expiry_date');
-    $daysRemaining = null;
-    $status        = 'Unknown';
-
-    if ($expiryDate) {
-        $expiry        = \Carbon\Carbon::parse($expiryDate);
-        $daysRemaining = (int) now()->startOfDay()->diffInDays($expiry, false);
-        $status        = match(true) {
-            $daysRemaining < 0    => 'Expired',
-            $daysRemaining <= 90  => 'Expiring Soon',
-            default               => 'Valid',
-        };
-    }
-
-    $normalizedFilename = $this->normalizeFilename(
-        $request->input('generic_name'),
-        $request->input('brand_name'),
-        $expiryDate
-    );
-
-    $cpr->update([
-        'registration_number' => $request->input('registration_number'),
-        'brand_name'          => $request->input('brand_name'),
-        'generic_name'        => $request->input('generic_name'),
-        'expiry_date'         => $expiryDate,
-        'days_remaining'      => $daysRemaining,
-        'status'              => $status,
-        'normalized_filename' => $normalizedFilename,
-    ]);
-
-    // Store success message
-session(['success' => '✅ CPR record updated successfully!']);
-    return redirect()->route('cpr.results');
-}
-
-public function progress(Request $request)
+    /**
+     * Streams file classification status (DB hit vs. needs parse).
+     *
+     * NOTE: This reflects pre-scan classification only — not actual parse
+     * completion. True per-file progress would require parse workers writing
+     * to a shared cache (e.g. Redis) that this endpoint polls.
+     */
+    public function progress(Request $request)
     {
-        $sessionPath = session('last_folder_path');
         $folderPath  = $request->input('folder_path');
-
-        $sendEvent = function (array $payload) {
-            echo "data: " . json_encode($payload) . "\n\n";
-            flush();
-        };
+        $sessionPath = session('last_folder_path');
 
         header('Content-Type: text/event-stream');
         header('Cache-Control: no-cache');
         header('X-Accel-Buffering: no');
 
-        if (!$folderPath || !$sessionPath || $folderPath !== $sessionPath) {
-            $sendEvent(['msg' => 'Invalid folder path.', 'done' => true]);
+        $send = fn(array $payload) => print("data: " . json_encode($payload) . "\n\n") && ob_flush() && flush();
+
+        if (!$folderPath || $folderPath !== $sessionPath) {
+            $send(['msg' => 'Invalid folder path.', 'done' => true]);
             return;
         }
 
-        if (!is_dir($folderPath) || !is_readable($folderPath)) {
-            $sendEvent(['msg' => 'Folder not accessible.', 'done' => true]);
-            return;
-        }
-
-        $dangerousPaths = ['/', 'C:\\', 'C:/', sys_get_temp_dir()];
-        if (in_array(rtrim($folderPath, '/\\'), array_map(fn($p) => rtrim($p, '/\\'), $dangerousPaths), true)) {
-            $sendEvent(['msg' => 'Forbidden path.', 'done' => true]);
+        $validationError = $this->scanService->validateFolder($folderPath);
+        if ($validationError) {
+            $send(['msg' => 'Folder not accessible.', 'done' => true]);
             return;
         }
 
@@ -564,12 +217,11 @@ public function progress(Request $request)
         $total = count($files);
 
         if ($total === 0) {
-            $sendEvent(['msg' => 'No files found.', 'done' => true]);
+            $send(['msg' => 'No files found.', 'done' => true]);
             return;
         }
 
-        $filenames       = collect($files)->map(fn($f) => basename($f))->toArray();
-        $existingRecords = CprRecord::whereIn('filename', $filenames)
+        $existingFilenames = CprRecord::whereIn('filename', array_map('basename', $files))
             ->whereNotNull('registration_number')
             ->whereNotNull('expiry_date')
             ->pluck('filename')
@@ -577,58 +229,41 @@ public function progress(Request $request)
 
         foreach ($files as $index => $file) {
             $filename = basename($file);
-            $msg      = isset($existingRecords[$filename])
+            $msg      = isset($existingFilenames[$filename])
                 ? "📂 Loading from DB: {$filename}"
                 : "📄 Parsing: {$filename}";
 
-            $sendEvent([
-                'msg'     => $msg,
-                'current' => $index + 1,
-                'total'   => $total,
-                'done'    => false,
-            ]);
+            $send(['msg' => $msg, 'current' => $index + 1, 'total' => $total, 'done' => false]);
         }
 
-        $sendEvent(['msg' => '✅ Scan complete!', 'done' => true]);
-    }
-    public function results(Request $request)
-{
-    $folderPath = session('last_folder_path');
-
-    if (!$folderPath) {
-        return redirect()->route('cpr.index');
+        $send(['msg' => '✅ Scan complete!', 'done' => true]);
     }
 
-    $perPage  = (int) $request->input('per_page', 10);
-    $page     = (int) $request->input('page', 1);
-    $total    = \App\Models\CprRecord::where('folder_path', $folderPath)->count();
-    $lastPage = (int) ceil($total / $perPage);
-    $records  = \App\Models\CprRecord::where('folder_path', $folderPath)
-        ->orderByRaw('CAST(REGEXP_SUBSTR(filename, "^[0-9]+") AS UNSIGNED) ASC')
-        ->skip(($page - 1) * $perPage)
-        ->take($perPage)
-        ->get()
-        ->toArray();
+    // ── Private helpers ──────────────────────────────────────────────────────
 
-    $summaryValid        = \App\Models\CprRecord::where('folder_path', $folderPath)->where('status', 'Valid')->count();
-    $summaryExpiringSoon = \App\Models\CprRecord::where('folder_path', $folderPath)->where('status', 'Expiring Soon')->count();
-    $summaryExpired      = \App\Models\CprRecord::where('folder_path', $folderPath)->where('status', 'Expired')->count();
-    $summaryErrors       = \App\Models\CprRecord::where('folder_path', $folderPath)->whereIn('status', ['Parse Error', 'Unknown'])->count();
+    private function resolveFolderPath(CprScanRequest $request): ?string
+    {
+        $raw = $request->isPagination()
+            ? session('last_folder_path')
+            : $request->input('folder_path');
 
-    return view('cpr.index', [
-        'results'             => $records,
-        'folderPath'          => $folderPath,
-        'perPage'             => $perPage,
-        'page'                => $page,
-        'total'               => $total,
-        'lastPage'            => $lastPage,
-        'fromDb'              => 0,
-        'fromPdf'             => 0,
-        'duplicates'          => [],
-        'summaryValid'        => $summaryValid,
-        'summaryExpiringSoon' => $summaryExpiringSoon,
-        'summaryExpired'      => $summaryExpired,
-        'summaryErrors'       => $summaryErrors,
-    ]);
-}
+        if (empty($raw)) {
+            return null;
+        }
+
+        return rtrim(trim((string) $raw), DIRECTORY_SEPARATOR);
+    }
+
+    /**
+     * Ensure the record belongs to the current session's folder.
+     * Prevents cross-session ID enumeration (e.g. user guesses /edit/1234).
+     */
+    private function authorizeRecord(CprRecord $cpr): void
+    {
+        $sessionPath = session('last_folder_path');
+
+        if (!$sessionPath || $cpr->folder_path !== $sessionPath) {
+            abort(403, 'You do not have access to this record.');
+        }
+    }
 }
