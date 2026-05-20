@@ -120,10 +120,11 @@
                 </div>
             </div>
 
-            <div class="overflow-y-auto flex-1 px-6 py-6 relative">
-                <table class="w-full text-sm">
-                    <thead class="bg-gray-50 sticky top-0 z-10">
-                        <tr>
+            <div class="flex-1 overflow-hidden flex flex-col px-6 py-4">
+                {{-- Fixed header --}}
+                <table class="w-full text-sm table-fixed mb-0">
+                    <thead>
+                        <tr class="bg-gray-50">
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">File</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Reg. Number</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Brand Name</th>
@@ -132,36 +133,41 @@
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Status</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        @foreach($duplicates as $dup)
-                            <tr class="{{ $loop->even ? 'bg-orange-50' : 'bg-white' }}">
-                                <td class="px-3 py-2 text-gray-800">
-                                    {{ $dup['normalized_filename'] ?? $dup['filename'] }}
-                                    <div class="text-xs text-gray-400">{{ $dup['filename'] }}</div>
-                                </td>
-                                <td class="px-3 py-2 text-gray-600">{{ $dup['registration_number'] ?? 'N/A' }}</td>
-                                <td class="px-3 py-2 font-medium text-gray-800">{{ $dup['brand_name'] ?? 'N/A' }}</td>
-                                <td class="px-3 py-2 text-gray-600">{{ $dup['generic_name'] ?? 'N/A' }}</td>
-                                <td class="px-3 py-2 text-gray-600">
-                                    {{ $dup['expiry_date'] ? \Carbon\Carbon::parse($dup['expiry_date'])->format('M d, Y') : 'N/A' }}
-                                </td>
-                                <td class="px-3 py-2">
-                                    @php
-                                        $dupStatusClasses = match($dup['status'] ?? '') {
-                                            'Valid'         => 'bg-green-100 text-green-800',
-                                            'Expiring Soon' => 'bg-yellow-100 text-yellow-800',
-                                            'Expired'       => 'bg-red-100 text-red-800',
-                                            default         => 'bg-gray-100 text-gray-800',
-                                        };
-                                    @endphp
-                                    <span class="px-2 py-1 text-xs font-medium rounded-full {{ $dupStatusClasses }}">
-                                        {{ $dup['status'] ?? 'Unknown' }}
-                                    </span>
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
                 </table>
+                {{-- Scrollable body --}}
+                <div class="overflow-y-auto flex-1">
+                    <table class="w-full text-sm table-fixed">
+                        <tbody class="divide-y divide-gray-100">
+                            @foreach($duplicates as $dup)
+                                <tr class="{{ $loop->even ? 'bg-orange-50' : 'bg-white' }}">
+                                    <td class="px-3 py-2 text-gray-800">
+                                        {{ $dup['normalized_filename'] ?? $dup['filename'] }}
+                                        <div class="text-xs text-gray-400">{{ $dup['filename'] }}</div>
+                                    </td>
+                                    <td class="px-3 py-2 text-gray-600">{{ $dup['registration_number'] ?? 'N/A' }}</td>
+                                    <td class="px-3 py-2 font-medium text-gray-800">{{ $dup['brand_name'] ?? 'N/A' }}</td>
+                                    <td class="px-3 py-2 text-gray-600">{{ $dup['generic_name'] ?? 'N/A' }}</td>
+                                    <td class="px-3 py-2 text-gray-600">
+                                        {{ $dup['expiry_date'] ? \Carbon\Carbon::parse($dup['expiry_date'])->format('M d, Y') : 'N/A' }}
+                                    </td>
+                                    <td class="px-3 py-2">
+                                        @php
+                                            $dupStatusClasses = match($dup['status'] ?? '') {
+                                                'Valid'         => 'bg-green-100 text-green-800',
+                                                'Expiring Soon' => 'bg-yellow-100 text-yellow-800',
+                                                'Expired'       => 'bg-red-100 text-red-800',
+                                                default         => 'bg-gray-100 text-gray-800',
+                                            };
+                                        @endphp
+                                        <span class="px-2 py-1 text-xs font-medium rounded-full {{ $dupStatusClasses }}">
+                                            {{ $dup['status'] ?? 'Unknown' }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <div id="modal-footer-default" class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 shrink-0">
