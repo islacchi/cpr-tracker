@@ -1,59 +1,128 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# CPR Expiry Tracker
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel-based internal tool for tracking the expiry status of Certificate of Product Registration (CPR) PDF files. The system scans a local folder of CPR documents, extracts registration data via PDF parsing, and presents a searchable, paginated dashboard with expiry status indicators.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Features
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Folder Scanning** — Point the system at any local directory containing CPR PDF files. It parses each file and extracts the registration number, brand name, generic name, and expiry date.
+- **Smart Caching** — Previously scanned files are loaded instantly from the database. Only new or modified files are re-parsed, reducing scan time on subsequent runs.
+- **Expiry Status Tracking** — Each record is automatically classified as `Valid`, `Expiring Soon` (within 90 days), or `Expired` based on the parsed expiry date.
+- **Inline Record Editing** — Edit any CPR record directly from the results table via a modal. No page navigation required.
+- **Directory as Source of Truth** — Records are only displayed if the corresponding PDF file still exists on disk. Deleted files are automatically excluded from results without touching the database.
+- **Parallel PDF Parsing** — Files are parsed concurrently using configurable worker processes, significantly reducing scan time on large folders.
+- **Real-time Scan Progress** — A Server-Sent Events (SSE) endpoint streams file classification status during a scan.
+- **Force Re-scan** — Option to wipe cached records and re-parse all files from scratch.
+- **Pagination** — Configurable rows per page (10, 20, 30) with full page navigation.
+- **Dark Mode** — Toggle between light and dark themes, persisted via localStorage.
+- **Summary Dashboard** — At-a-glance counts for Valid, Expiring Soon, Expired, and Error records.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Requirements
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+- PHP 8.2+
+- Laravel 12
+- MySQL (or any Laravel-supported database)
+- Composer
+- A PDF parsing library configured in `App\Services\CprParser`
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## Installation
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```bash
+git clone https://github.com/your-org/cpr-tracker.git
+cd cpr-tracker
+composer install
+cp .env.example .env
+php artisan key:generate
+```
 
-### Premium Partners
+Configure your database in `.env`, then run migrations:
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```bash
+php artisan migrate
+```
 
-## Contributing
+Start the development server:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+php artisan serve
+```
 
-## Code of Conduct
+---
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Usage
 
-## Security Vulnerabilities
+1. Open the app in your browser at `http://127.0.0.1:8000`
+2. Enter the full path to the folder containing your CPR PDF files (e.g. `E:\CPR Files`)
+3. Click **Scan Folder**
+4. Results are displayed in a paginated table with expiry status for each file
+5. Click any row to open the PDF directly in the browser
+6. Click **Edit** on any row to correct parsed data via the inline modal
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+---
+
+## Scheduled Commands
+
+The system includes an Artisan command that refreshes `days_remaining` and `status` for all records daily, preventing values from going stale between scans.
+
+Register it in `app/Console/Kernel.php`:
+
+```php
+$schedule->command('cpr:refresh-status')->dailyAt('00:05');
+```
+
+Or in `routes/console.php` (Laravel 10+):
+
+```php
+Schedule::command('cpr:refresh-status')->dailyAt('00:05');
+```
+
+---
+
+## Configuration
+
+| Setting | Location | Default |
+|---|---|---|
+| Parse concurrency (parallel workers) | `CprScanService::PARSE_CONCURRENCY` | `4` |
+| Expiring Soon threshold | `CprRecord::resolveStatus()` `$warningDays` | `90` days |
+| Max files per scan | `CprScanService::validateFolder()` | `500` |
+
+---
+
+## Project Structure
+
+```
+app/
+├── Console/Commands/
+│   └── RefreshCprStatus.php       # Daily status refresh command
+├── Http/
+│   ├── Controllers/
+│   │   └── CprController.php      # Thin dispatcher — no business logic
+│   └── Requests/
+│       ├── CprScanRequest.php     # Scan form validation
+│       └── CprUpdateRequest.php   # Edit modal validation
+├── Models/
+│   └── CprRecord.php              # Status calculation, normalized filename
+└── Services/
+    └── CprScanService.php         # All scan business logic
+resources/views/cpr/
+└── index.blade.php                # Main dashboard view
+```
+
+---
+
+## Security
+
+- Folder path input is validated against a list of forbidden system paths
+- PDF file access is restricted via `realpath()` path traversal checks — only files within the scanned folder can be opened
+- Edit access is scoped to the current session's folder path, preventing cross-session record enumeration
+
+---
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Internal use only. Not licensed for public distribution.
