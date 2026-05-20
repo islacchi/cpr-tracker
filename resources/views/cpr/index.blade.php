@@ -346,10 +346,11 @@
                         @elseif($isDisabled)
                             <span class="px-3 py-1 text-sm rounded-lg border bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed">{{ $size }}</span>
                         @else
-                            <form action="{{ route('cpr.results') }}" method="GET" class="inline">
+                            <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                                @csrf
                                 <input type="hidden" name="per_page" value="{{ $size }}">
                                 <input type="hidden" name="page" value="1">
-                                <button ...>{{ $size }}</button>
+                                <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $size }}</button>
                             </form>
                         @endif
                     @endforeach
@@ -360,30 +361,33 @@
 
                 <div class="flex items-center gap-2">
                     @if($page > 1)
-                        <form action="{{ route('cpr.results') }}" method="GET" class="inline">
-                            <input type="hidden" name="per_page" value="{{ $size }}">
-                            <input type="hidden" name="page" value="1">
-                            <button ...>{{ $size }}</button>
+                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                            @csrf
+                            <input type="hidden" name="per_page" value="{{ $perPage }}">
+                            <input type="hidden" name="page" value="{{ $page - 1 }}">
+                            <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">← Prev</button>
                         </form>
                     @endif
 
-                    @for($i = 1; $i <= $lastPage; $i++)
-                        @if($page == $i)
-                            <span class="px-3 py-1 text-sm rounded-lg border bg-blue-600 text-white border-blue-600 cursor-default">{{ $i }}</span>
+                    @foreach(range(1, $lastPage) as $pageNum)
+                        @if($page == $pageNum)
+                            <span class="px-3 py-1 text-sm rounded-lg border bg-blue-600 text-white border-blue-600 cursor-default">{{ $pageNum }}</span>
                         @else
-                            <form action="{{ route('cpr.results') }}" method="GET" class="inline">
-                                <input type="hidden" name="per_page" value="{{ $size }}">
-                                <input type="hidden" name="page" value="1">
-                                <button ...>{{ $size }}</button>
+                            <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                                @csrf
+                                <input type="hidden" name="per_page" value="{{ $perPage }}">
+                                <input type="hidden" name="page" value="{{ $pageNum }}">
+                                <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $pageNum }}</button>
                             </form>
                         @endif
-                    @endfor
+                    @endforeach
 
                     @if($page < $lastPage)
-                        <form action="{{ route('cpr.results') }}" method="GET" class="inline">
-                            <input type="hidden" name="per_page" value="{{ $size }}">
-                            <input type="hidden" name="page" value="1">
-                            <button ...>{{ $size }}</button>
+                        <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
+                            @csrf
+                            <input type="hidden" name="per_page" value="{{ $perPage }}">
+                            <input type="hidden" name="page" value="{{ $page + 1 }}">
+                            <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">Next →</button>
                         </form>
                     @endif
                 </div>
