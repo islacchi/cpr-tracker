@@ -16,6 +16,12 @@ class CprController extends Controller
 
     public function index()
     {
+        $folderPath = session('last_folder_path');
+
+        if ($folderPath) {
+            return redirect()->route('cpr.results');
+        }
+
         return view('cpr.index', CprScanService::emptyViewData());
     }
 
@@ -57,20 +63,14 @@ class CprController extends Controller
 
         [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage);
 
-        return view('cpr.index', [
-            'results'             => $records,
-            'folderPath'          => $folderPath,
-            'perPage'             => $perPage,
-            'page'                => $page,
-            'total'               => $total,
-            'lastPage'            => $lastPage,
-            'fromDb'              => $fromDb,
-            'fromPdf'             => $fromPdf,
-            'duplicates'          => session('scan_duplicates', []),
-            'summaryValid'        => session('summary_valid', 0),
-            'summaryExpiringSoon' => session('summary_expiring', 0),
-            'summaryExpired'      => session('summary_expired', 0),
-            'summaryErrors'       => session('summary_errors', 0),
+        session([
+            'cpr_per_page' => $perPage,
+            'cpr_page'     => $page,
+        ]);
+
+        return redirect()->route('cpr.results', [
+            'page'     => $page,
+            'per_page' => $perPage,
         ]);
     }
 
