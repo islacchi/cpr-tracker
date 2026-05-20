@@ -68,6 +68,10 @@
     <div id="loading-overlay" style="display:none;" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white bg-opacity-90">
         <div class="text-center w-80">
             <div class="text-6xl animate-bounce mb-6">💊</div>
+            {{-- <div id="stopwatch-display" style="font-variant-numeric:tabular-nums;letter-spacing:0.08em;"
+                class="text-3xl font-mono font-medium text-gray-700 dark:text-gray-200">
+                00:00
+            </div> --}}
             <p id="loading-msg" class="text-gray-700 font-medium text-sm mb-1 truncate w-64 mx-auto"></p>
         </div>
     </div>
@@ -85,6 +89,8 @@
         </div>
     </div>
     @endif
+
+    
 
     {{-- ── Duplicates Modal ──────────────────────────────────────── --}}
     @if(isset($duplicates) && count($duplicates) > 0)
@@ -162,7 +168,7 @@
             <div id="modal-footer-default" class="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 shrink-0">
                 <button onclick="showRescanConfirm()"
                     class="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition">
-                    Re-scan All
+                    Update
                 </button>
                 <button onclick="closeDuplicatesModal()"
                     class="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
@@ -270,9 +276,9 @@
                                 onclick="window.open('{{ route('cpr.open', ['folder_path' => $folderPath, 'filename' => $cpr['filename']]) }}', '_blank')"
                             >
                          <td class="px-4 py-3" onclick="event.stopPropagation()">
-                            <a href="{{ route('cpr.edit', $cpr['id']) }}"
+                            <a href="{{ route('cpr.edit', ['id' => $cpr['id'], 'page' => $page, 'per_page' => $perPage]) }}"
                                 class="px-3 py-1 text-xs font-medium rounded-lg bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition">
-                                ✏️ Edit
+                                Edit
                             </a>
                         </td>
                                 <td class="px-4 py-3 text-sm text-gray-800">
@@ -367,18 +373,18 @@
                         </form>
                     @endif
 
-                    @for($i = 1; $i <= $lastPage; $i++)
-                        @if($page == $i)
-                            <span class="px-3 py-1 text-sm rounded-lg border bg-blue-600 text-white border-blue-600 cursor-default">{{ $i }}</span>
+                    @foreach(range(1, $lastPage) as $pageNum)
+                        @if($page == $pageNum)
+                            <span class="px-3 py-1 text-sm rounded-lg border bg-blue-600 text-white border-blue-600 cursor-default">{{ $pageNum }}</span>
                         @else
                             <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
                                 @csrf
                                 <input type="hidden" name="per_page" value="{{ $perPage }}">
-                                <input type="hidden" name="page" value="{{ $i }}">
-                                <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $i }}</button>
+                                <input type="hidden" name="page" value="{{ $pageNum }}">
+                                <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $pageNum }}</button>
                             </form>
                         @endif
-                    @endfor
+                    @endforeach
 
                     @if($page < $lastPage)
                         <form action="{{ route('cpr.scan') }}" method="POST" class="inline">
@@ -392,22 +398,82 @@
             </div>
 
             <div class="mt-6 grid grid-cols-4 gap-4">
-                <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-green-600">{{ $summaryValid }}</div>
-                    <div class="text-sm text-green-800">Valid</div>
+                @php
+                    $filters = [
+                        ['key' => 'Valid',         'count' => $summaryValid,        'bg' => 'bg-green-50',  'border' => 'border-green-200',  'text' => 'text-green-600',  'label' => 'text-green-800'],
+                        ['key' => 'Expiring Soon', 'count' => $summaryExpiringSoon, 'bg' => 'bg-yellow-50', 'border' => 'border-yellow-200', 'text' => 'text-yellow-600', 'label' => 'text-yellow-800'],
+                        ['key' => 'Expired',       'count' => $summaryExpired,      'bg' => 'bg-red-50',    'border' => 'border-red-200',    'text' => 'text-red-600',    'label' => 'text-red-800'],
+                        ['key' => 'Unknown',       'count' => $summaryErrors,       'bg' => 'bg-gray-50',   'border' => 'border-gray-200',   'text' => 'text-gray-600',   'label' => 'text-gray-800'],
+                    ];
+                @endphp
+
+                @foreach($filters as $f)
+                    @php
+                        $isActive  = ($filterStatus ?? '') === $f['key'];
+                        $ringClass = $isActive ? 'ring-2 ring-offset-2 ring-blue-500 scale-105' : 'opacity-60 hover:opacity-100';
+                    @endphp
+                    <form action="{{ route('cpr.scan') }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="per_page"      value="{{ $perPage }}">
+                        <input type="hidden" name="page"          value="1">
+                        <input type="hidden" name="filter_status" value="{{ $f['key'] }}">
+                        <button type="submit"
+                            class="w-full {{ $f['bg'] }} {{ $f['border'] }} border rounded-lg p-4 text-center transition-all duration-150 {{ $ringClass }} cursor-pointer">
+                            <div class="text-2xl font-bold {{ $f['text'] }}">{{ $f['count'] }}</div>
+                            <div class="text-sm {{ $f['label'] }}">{{ $f['key'] }}</div>
+                        </button>
+                    </form>
+                @endforeach
+            </div>
+
+        @elseif(isset($filterStatus) && $filterStatus)
+            <div class="bg-white rounded-lg shadow p-8 text-center">
+                <div class="text-4xl mb-3">
+                    @php
+                        echo match($filterStatus) {
+                            'Valid'         => '✅',
+                            'Expiring Soon' => '⚠️',
+                            'Expired'       => '❌',
+                            default         => '🔍',
+                        };
+                    @endphp
                 </div>
-                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-yellow-600">{{ $summaryExpiringSoon }}</div>
-                    <div class="text-sm text-yellow-800">Expiring Soon</div>
-                </div>
-                <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-red-600">{{ $summaryExpired }}</div>
-                    <div class="text-sm text-red-800">Expired</div>
-                </div>
-                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-gray-600">{{ $summaryErrors }}</div>
-                    <div class="text-sm text-gray-800">Errors</div>
-                </div>
+                <p class="text-gray-600 font-medium">
+                    @php
+                        echo match($filterStatus) {
+                            'Valid'         => 'No valid CPRs found.',
+                            'Expiring Soon' => 'No expiring soon CPRs found.',
+                            'Expired'       => 'No expired CPRs found.',
+                            default         => "No records found for \"$filterStatus\".",
+                        };
+                    @endphp
+                </p>
+            </div>
+
+            {{-- Keep summary cards visible so user can switch filters --}}
+            <div class="mt-6 grid grid-cols-4 gap-4">
+                @php
+                    $filters = [
+                        ['key' => 'Valid',         'count' => $summaryValid,        'bg' => 'bg-green-50',  'border' => 'border-green-200',  'text' => 'text-green-600',  'label' => 'text-green-800'],
+                        ['key' => 'Expiring Soon', 'count' => $summaryExpiringSoon, 'bg' => 'bg-yellow-50', 'border' => 'border-yellow-200', 'text' => 'text-yellow-600', 'label' => 'text-yellow-800'],
+                        ['key' => 'Expired',       'count' => $summaryExpired,      'bg' => 'bg-red-50',    'border' => 'border-red-200',    'text' => 'text-red-600',    'label' => 'text-red-800'],
+                        ['key' => 'Unknown',       'count' => $summaryErrors,       'bg' => 'bg-gray-50',   'border' => 'border-gray-200',   'text' => 'text-gray-600',   'label' => 'text-gray-800'],
+                    ];
+                @endphp
+                @foreach($filters as $f)
+                    @php $isActive = ($filterStatus ?? '') === $f['key']; @endphp
+                    <form action="{{ route('cpr.scan') }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="per_page"      value="{{ $perPage }}">
+                        <input type="hidden" name="page"          value="1">
+                        <input type="hidden" name="filter_status" value="{{ $f['key'] }}">
+                        <button type="submit"
+                            class="w-full {{ $f['bg'] }} {{ $f['border'] }} border rounded-lg p-4 text-center transition-all duration-150 {{ $isActive ? 'ring-2 ring-offset-2 ring-blue-500 scale-105' : 'opacity-60 hover:opacity-100' }} cursor-pointer">
+                            <div class="text-2xl font-bold {{ $f['text'] }}">{{ $f['count'] }}</div>
+                            <div class="text-sm {{ $f['label'] }}">{{ $f['key'] }}</div>
+                        </button>
+                    </form>
+                @endforeach
             </div>
 
         @elseif(isset($folderPath) && $folderPath)
@@ -419,6 +485,28 @@
     </div>
 
     <script>
+        let _swInterval = null;
+        let _swStart    = null;
+
+        // function startStopwatch() {
+        //     _swStart = Date.now();
+        //     const el = document.getElementById('stopwatch-display');
+        //     if (el) el.textContent = '00:00';
+        //     _swInterval = setInterval(() => {
+        //         if (!el) return;
+        //         const ms      = Date.now() - _swStart;
+        //         const totalSec = Math.floor(ms / 1000);
+        //         const min      = Math.floor(totalSec / 60);
+        //         const sec      = totalSec % 60;
+        //         el.textContent = String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+        //     }, 500);
+        // }
+
+        // function stopStopwatch() {
+        //     clearInterval(_swInterval);
+        //     _swInterval = null;
+        //     _swStart    = null;
+        // }
         function toggleDarkMode() {
             const html = document.documentElement;
             const btn  = document.getElementById('dark-toggle');
@@ -486,9 +574,9 @@
         }
 
         function hideLoading() {
+            // stopStopwatch();
             if (window._msgInterval) { clearInterval(window._msgInterval); window._msgInterval = null; }
             if (sseSource)           { sseSource.close(); sseSource = null; }
-            document.getElementById('loading-msg').textContent = '✅ Done!';
             setTimeout(() => { document.getElementById('loading-overlay').style.display = 'none'; }, 400);
         }
 
@@ -499,8 +587,10 @@
                 const folderInput  = document.querySelector('#scan-form input[name="folder_path"]');
                 const folderPath   = folderInput ? folderInput.value.trim() : null;
                 const isPagination = this.querySelector('input[name="page"]') !== null
-                                  || this.querySelector('input[name="per_page"]') !== null;
+                                || this.querySelector('input[name="per_page"]') !== null;
                 showLoading(isPagination ? null : folderPath);
+
+                if (!isPagination) startStopwatch();  // ← only line added
             });
         });
 

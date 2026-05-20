@@ -13,7 +13,10 @@ class CprParser
             $text = $this->extractTextFromPdf($filePath);
             \Log::info('Text length: ' . strlen(trim($text)) . ' | File: ' . basename($filePath));
 
-            if (strlen(trim($text)) < 50) {
+            $hasUsefulText = strlen(trim($text)) >= 50
+                && preg_match('/Brand\s*Name|Registration\s*Number/i', $text);
+
+            if (!$hasUsefulText) {
                 $text = $this->extractTextWithOcr($filePath);
             }
 
@@ -37,40 +40,56 @@ class CprParser
 
     // ── Text Extraction ───────────────────────────────────────
 
-private function extractTextFromPdf(string $filePath): string
-{
-    $parser = new Parser();
-    $pdf    = $parser->parseFile($filePath);
-    $pages  = $pdf->getPages();
+    private function extractTextFromPdf(string $filePath): string
+    {
+        $parser = new Parser();
+        $pdf    = $parser->parseFile($filePath);
+        $pages  = $pdf->getPages();
 
-    // Read only first page
-    if (!empty($pages)) {
-        return $pages[0]->getText();
+        if (empty($pages)) {
+            return '';
+        }
+
+        // Read up to 5 pages instead of page 1 only.
+        // CPRs vary — expiry date and registration number are not
+        // always on the first page.
+        $text = '';
+        foreach (array_slice($pages, 0, 5) as $page) {
+            $text .= $page->getText() . "\n";
+        }
+
+        return $text;
     }
-
-    return '';
-}
 
     private function extractTextWithOcr(string $filePath): string
     {
         try {
             $tempDir    = sys_get_temp_dir();
-            $outputBase = $tempDir . DIRECTORY_SEPARATOR . 'cpr_page';
+            $safePdf    = $tempDir . DIRECTORY_SEPARATOR . 'cpr_input_' . md5($filePath) . '.pdf';
+            $outputBase = $tempDir . DIRECTORY_SEPARATOR . 'cpr_out_' . md5($filePath);
             $imagePath  = $outputBase . '-1.png';
+
+            // Copy to a safe filename — no spaces, parens, or apostrophes
+            // that would break the shell command on Windows
+            copy($filePath, $safePdf);
 
             $command = sprintf(
                 '"%s" -png -f 1 -l 1 -r 300 "%s" "%s"',
                 'C:\poppler-26.02.0\Library\bin\pdftoppm.exe',
-                $filePath,
+                $safePdf,
                 $outputBase
             );
 
             exec($command, $output, $returnCode);
 
-            \Log::info('Poppler command exit code: ' . $returnCode);
+            \Log::info('Poppler exit code: ' . $returnCode . ' | File: ' . basename($filePath));
+
+            if (file_exists($safePdf)) {
+                unlink($safePdf);
+            }
 
             if (!file_exists($imagePath)) {
-                \Log::error('Poppler did not create image at: ' . $imagePath);
+                \Log::error('Poppler did not create image: ' . $imagePath . ' | File: ' . basename($filePath));
                 return '';
             }
 
@@ -86,7 +105,7 @@ private function extractTextFromPdf(string $filePath): string
             return $text;
 
         } catch (\Exception $e) {
-            \Log::error('OCR failed: ' . $e->getMessage());
+            \Log::error('OCR failed: ' . $e->getMessage() . ' | File: ' . basename($filePath));
             return '';
         }
     }
