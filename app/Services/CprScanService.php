@@ -302,7 +302,7 @@ class CprScanService
     private function buildRow(string $file, array $parsed, string $folderPath, $now): array
     {
         $filename  = basename($file);
-        $computed  = CprRecord::resolveStatus($parsed['expiry_date'] ?? null);
+        $computed = CprRecord::resolveStatus($parsed['expiry_date'] ?? null, 90, $parsed['brand_name'] ?? null);
 
         return [
             'filename'            => $filename,

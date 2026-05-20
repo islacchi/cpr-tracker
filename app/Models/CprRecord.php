@@ -60,10 +60,15 @@ class CprRecord extends Model
      *
      * @return array{days_remaining: int|null, status: string}
      */
-    public static function resolveStatus(?string $expiryDate, int $warningDays = 90): array
+    public static function resolveStatus(?string $expiryDate, int $warningDays = 90, ?string $brandName = null): array
     {
         if (!$expiryDate) {
             return ['days_remaining' => null, 'status' => 'Unknown'];
+        }
+        if (empty($brandName)) {
+            $expiry        = Carbon::parse($expiryDate);
+            $daysRemaining = (int) now()->startOfDay()->diffInDays($expiry, false);
+            return ['days_remaining' => $daysRemaining, 'status' => 'Unknown'];
         }
 
         $expiry        = Carbon::parse($expiryDate);

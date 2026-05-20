@@ -146,7 +146,7 @@ class CprController extends Controller
         $this->authorizeRecord($cpr);
 
         $expiryDate = $request->input('expiry_date');
-        $computed   = CprRecord::resolveStatus($expiryDate);
+        $computed = CprRecord::resolveStatus($expiryDate, 90, $request->input('brand_name'));
 
         $cpr->update([
             'registration_number' => $request->input('registration_number'),
