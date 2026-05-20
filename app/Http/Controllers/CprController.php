@@ -50,9 +50,24 @@ class CprController extends Controller
         $perPage      = (int) $request->input('per_page', 10);
         $page         = (int) $request->input('page', 1);
 
+        // ── Filter resolution ────────────────────────────────────────────────
+        $incomingFilter = $request->input('filter_status');
+        if (!$isPagination) {
+            $filterStatus = null;
+            session()->forget('cpr_filter_status');
+        } elseif ($incomingFilter !== null) {
+            $current      = session('cpr_filter_status');
+            $filterStatus = ($incomingFilter === $current) ? null : $incomingFilter;
+            session(['cpr_filter_status' => $filterStatus]);
+        } else {
+            $filterStatus = session('cpr_filter_status');
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         if ($isPagination) {
             $fromDb  = session('scan_from_db', 0);
             $fromPdf = session('scan_from_pdf', 0);
+            session()->forget('scan_duplicates');
         } else {
             [$fromDb, $fromPdf] = $this->scanService->runScan($folderPath, (bool) $request->input('force_rescan'));
 
@@ -61,7 +76,7 @@ class CprController extends Controller
             }
         }
 
-        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage);
+        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage, $filterStatus);
 
         session([
             'cpr_per_page' => $perPage,
@@ -69,8 +84,9 @@ class CprController extends Controller
         ]);
 
         return redirect()->route('cpr.results', [
-            'page'     => $page,
-            'per_page' => $perPage,
+            'page'          => $page,
+            'per_page'      => $perPage,
+            'filter_status' => $filterStatus,
         ]);
     }
 
@@ -89,10 +105,11 @@ class CprController extends Controller
             return redirect()->route('cpr.index');
         }
 
-        $perPage = (int) $request->input('per_page', 10);
-        $page    = (int) $request->input('page', 1);
+        $perPage      = (int) $request->input('per_page', 10);
+        $page         = (int) $request->input('page', 1);
+        $filterStatus = $request->input('filter_status', session('cpr_filter_status'));
 
-        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage);
+        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage, $filterStatus);
         $counts = $this->scanService->summaryCounts($folderPath);
 
         return view('cpr.index', [
@@ -104,11 +121,12 @@ class CprController extends Controller
             'lastPage'            => $lastPage,
             'fromDb'              => 0,
             'fromPdf'             => 0,
-            'duplicates'          => [],
+            'duplicates'          => session('scan_duplicates', []),
             'summaryValid'        => $counts['valid'],
             'summaryExpiringSoon' => $counts['expiring'],
             'summaryExpired'      => $counts['expired'],
             'summaryErrors'       => $counts['errors'],
+            'filterStatus'        => $filterStatus,  // ← added
         ]);
     }
 

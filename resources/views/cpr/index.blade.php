@@ -398,22 +398,82 @@
             </div>
 
             <div class="mt-6 grid grid-cols-4 gap-4">
-                <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-green-600">{{ $summaryValid }}</div>
-                    <div class="text-sm text-green-800">Valid</div>
+                @php
+                    $filters = [
+                        ['key' => 'Valid',         'count' => $summaryValid,        'bg' => 'bg-green-50',  'border' => 'border-green-200',  'text' => 'text-green-600',  'label' => 'text-green-800'],
+                        ['key' => 'Expiring Soon', 'count' => $summaryExpiringSoon, 'bg' => 'bg-yellow-50', 'border' => 'border-yellow-200', 'text' => 'text-yellow-600', 'label' => 'text-yellow-800'],
+                        ['key' => 'Expired',       'count' => $summaryExpired,      'bg' => 'bg-red-50',    'border' => 'border-red-200',    'text' => 'text-red-600',    'label' => 'text-red-800'],
+                        ['key' => 'Unknown',       'count' => $summaryErrors,       'bg' => 'bg-gray-50',   'border' => 'border-gray-200',   'text' => 'text-gray-600',   'label' => 'text-gray-800'],
+                    ];
+                @endphp
+
+                @foreach($filters as $f)
+                    @php
+                        $isActive  = ($filterStatus ?? '') === $f['key'];
+                        $ringClass = $isActive ? 'ring-2 ring-offset-2 ring-blue-500 scale-105' : 'opacity-60 hover:opacity-100';
+                    @endphp
+                    <form action="{{ route('cpr.scan') }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="per_page"      value="{{ $perPage }}">
+                        <input type="hidden" name="page"          value="1">
+                        <input type="hidden" name="filter_status" value="{{ $f['key'] }}">
+                        <button type="submit"
+                            class="w-full {{ $f['bg'] }} {{ $f['border'] }} border rounded-lg p-4 text-center transition-all duration-150 {{ $ringClass }} cursor-pointer">
+                            <div class="text-2xl font-bold {{ $f['text'] }}">{{ $f['count'] }}</div>
+                            <div class="text-sm {{ $f['label'] }}">{{ $f['key'] }}</div>
+                        </button>
+                    </form>
+                @endforeach
+            </div>
+
+        @elseif(isset($filterStatus) && $filterStatus)
+            <div class="bg-white rounded-lg shadow p-8 text-center">
+                <div class="text-4xl mb-3">
+                    @php
+                        echo match($filterStatus) {
+                            'Valid'         => '✅',
+                            'Expiring Soon' => '⚠️',
+                            'Expired'       => '❌',
+                            default         => '🔍',
+                        };
+                    @endphp
                 </div>
-                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-yellow-600">{{ $summaryExpiringSoon }}</div>
-                    <div class="text-sm text-yellow-800">Expiring Soon</div>
-                </div>
-                <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-red-600">{{ $summaryExpired }}</div>
-                    <div class="text-sm text-red-800">Expired</div>
-                </div>
-                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                    <div class="text-2xl font-bold text-gray-600">{{ $summaryErrors }}</div>
-                    <div class="text-sm text-gray-800">Errors</div>
-                </div>
+                <p class="text-gray-600 font-medium">
+                    @php
+                        echo match($filterStatus) {
+                            'Valid'         => 'No valid CPRs found.',
+                            'Expiring Soon' => 'No expiring soon CPRs found.',
+                            'Expired'       => 'No expired CPRs found.',
+                            default         => "No records found for \"$filterStatus\".",
+                        };
+                    @endphp
+                </p>
+            </div>
+
+            {{-- Keep summary cards visible so user can switch filters --}}
+            <div class="mt-6 grid grid-cols-4 gap-4">
+                @php
+                    $filters = [
+                        ['key' => 'Valid',         'count' => $summaryValid,        'bg' => 'bg-green-50',  'border' => 'border-green-200',  'text' => 'text-green-600',  'label' => 'text-green-800'],
+                        ['key' => 'Expiring Soon', 'count' => $summaryExpiringSoon, 'bg' => 'bg-yellow-50', 'border' => 'border-yellow-200', 'text' => 'text-yellow-600', 'label' => 'text-yellow-800'],
+                        ['key' => 'Expired',       'count' => $summaryExpired,      'bg' => 'bg-red-50',    'border' => 'border-red-200',    'text' => 'text-red-600',    'label' => 'text-red-800'],
+                        ['key' => 'Unknown',       'count' => $summaryErrors,       'bg' => 'bg-gray-50',   'border' => 'border-gray-200',   'text' => 'text-gray-600',   'label' => 'text-gray-800'],
+                    ];
+                @endphp
+                @foreach($filters as $f)
+                    @php $isActive = ($filterStatus ?? '') === $f['key']; @endphp
+                    <form action="{{ route('cpr.scan') }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="per_page"      value="{{ $perPage }}">
+                        <input type="hidden" name="page"          value="1">
+                        <input type="hidden" name="filter_status" value="{{ $f['key'] }}">
+                        <button type="submit"
+                            class="w-full {{ $f['bg'] }} {{ $f['border'] }} border rounded-lg p-4 text-center transition-all duration-150 {{ $isActive ? 'ring-2 ring-offset-2 ring-blue-500 scale-105' : 'opacity-60 hover:opacity-100' }} cursor-pointer">
+                            <div class="text-2xl font-bold {{ $f['text'] }}">{{ $f['count'] }}</div>
+                            <div class="text-sm {{ $f['label'] }}">{{ $f['key'] }}</div>
+                        </button>
+                    </form>
+                @endforeach
             </div>
 
         @elseif(isset($folderPath) && $folderPath)
