@@ -120,22 +120,23 @@ class CprScanService
      *
      * @return array{array, int, int}  [$records, $total, $lastPage]
      */
-    public function paginateResults(string $folderPath, int $page, int $perPage): array
+    public function paginateResults(string $folderPath, int $page, int $perPage, ?string $filterStatus = null): array
     {
-        // The directory is the source of truth.
-        // Only return records whose PDF files still exist on disk.
-        // The DB is a cache — a file deleted from the folder must not appear.
-        $diskFiles = glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
+        $diskFiles     = glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
         $diskFilenames = array_map('basename', $diskFiles);
 
         $query = CprRecord::where('folder_path', $folderPath)
             ->whereIn('filename', $diskFilenames);
 
+        if ($filterStatus) {
+            $query->where('status', $filterStatus);
+        }
+
         $total    = $query->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
 
         $records = (clone $query)
-            ->orderBy('sort_order', 'asc')
+            ->orderByRaw("CAST(REGEXP_SUBSTR(filename, '^[0-9]+') AS UNSIGNED) ASC")
             ->skip(($page - 1) * $perPage)
             ->take($perPage)
             ->get()
@@ -303,8 +304,6 @@ class CprScanService
         $filename  = basename($file);
         $computed  = CprRecord::resolveStatus($parsed['expiry_date'] ?? null);
 
-        preg_match('/^(\d+)/', $filename, $matches);
-
         return [
             'filename'            => $filename,
             'folder_path'         => $folderPath,
@@ -319,7 +318,6 @@ class CprScanService
             'expiry_date'         => $parsed['expiry_date'],
             'days_remaining'      => $computed['days_remaining'],
             'status'              => $computed['status'],
-            'sort_order'          => isset($matches[1]) ? (int) $matches[1] : 0,
             'updated_at'          => $now,
             'created_at'          => $now,
         ];
@@ -342,7 +340,7 @@ class CprScanService
                     [
                         'folder_path', 'normalized_filename', 'registration_number',
                         'brand_name', 'generic_name', 'expiry_date',
-                        'days_remaining', 'status', 'sort_order', 'updated_at',
+                        'days_remaining', 'status', 'updated_at',
                     ]
                 );
             }
@@ -499,7 +497,6 @@ class CprScanService
             'expiry_date'         => $existing->expiry_date,
             'days_remaining'      => $existing->days_remaining,
             'status'              => $existing->status,
-            'sort_order'          => $existing->sort_order ?? 0,
             'updated_at'          => $existing->updated_at,
             'created_at'          => $existing->created_at,
         ];
