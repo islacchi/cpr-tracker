@@ -68,6 +68,10 @@
     <div id="loading-overlay" style="display:none;" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white bg-opacity-90">
         <div class="text-center w-80">
             <div class="text-6xl animate-bounce mb-6">💊</div>
+            {{-- <div id="stopwatch-display" style="font-variant-numeric:tabular-nums;letter-spacing:0.08em;"
+                class="text-3xl font-mono font-medium text-gray-700 dark:text-gray-200">
+                00:00
+            </div> --}}
             <p id="loading-msg" class="text-gray-700 font-medium text-sm mb-1 truncate w-64 mx-auto"></p>
         </div>
     </div>
@@ -421,6 +425,28 @@
     </div>
 
     <script>
+        let _swInterval = null;
+        let _swStart    = null;
+
+        // function startStopwatch() {
+        //     _swStart = Date.now();
+        //     const el = document.getElementById('stopwatch-display');
+        //     if (el) el.textContent = '00:00';
+        //     _swInterval = setInterval(() => {
+        //         if (!el) return;
+        //         const ms      = Date.now() - _swStart;
+        //         const totalSec = Math.floor(ms / 1000);
+        //         const min      = Math.floor(totalSec / 60);
+        //         const sec      = totalSec % 60;
+        //         el.textContent = String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+        //     }, 500);
+        // }
+
+        // function stopStopwatch() {
+        //     clearInterval(_swInterval);
+        //     _swInterval = null;
+        //     _swStart    = null;
+        // }
         function toggleDarkMode() {
             const html = document.documentElement;
             const btn  = document.getElementById('dark-toggle');
@@ -488,9 +514,9 @@
         }
 
         function hideLoading() {
+            // stopStopwatch();
             if (window._msgInterval) { clearInterval(window._msgInterval); window._msgInterval = null; }
             if (sseSource)           { sseSource.close(); sseSource = null; }
-            document.getElementById('loading-msg').textContent = '✅ Done!';
             setTimeout(() => { document.getElementById('loading-overlay').style.display = 'none'; }, 400);
         }
 
@@ -501,8 +527,10 @@
                 const folderInput  = document.querySelector('#scan-form input[name="folder_path"]');
                 const folderPath   = folderInput ? folderInput.value.trim() : null;
                 const isPagination = this.querySelector('input[name="page"]') !== null
-                                  || this.querySelector('input[name="per_page"]') !== null;
+                                || this.querySelector('input[name="per_page"]') !== null;
                 showLoading(isPagination ? null : folderPath);
+
+                if (!isPagination) startStopwatch();  // ← only line added
             });
         });
 
