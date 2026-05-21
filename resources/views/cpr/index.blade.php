@@ -95,7 +95,7 @@
     {{-- ── Duplicates Modal ──────────────────────────────────────── --}}
     @if(isset($duplicates) && count($duplicates) > 0)
     <div id="duplicates-modal" class="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50">
-        <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 flex flex-col" style="max-height: 80vh;">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 flex flex-col" style="max-height: 90vh;">
 
             <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                 <div>
@@ -125,7 +125,7 @@
                 <table class="w-full text-sm table-fixed mb-0">
                     <thead>
                         <tr class="bg-gray-50">
-                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">File</th>
+                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-60">File</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Reg. Number</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Brand Name</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Generic Name</th>
@@ -140,7 +140,7 @@
                         <tbody class="divide-y divide-gray-100">
                             @foreach($duplicates as $dup)
                                 <tr class="{{ $loop->even ? 'bg-orange-50' : 'bg-white' }}">
-                                    <td class="px-3 py-2 text-gray-800">
+                                    <td class="px-3 py-2 text-gray-800 w-60">
                                         {{ $dup['normalized_filename'] ?? $dup['filename'] }}
                                         <div class="text-xs text-gray-400">{{ $dup['filename'] }}</div>
                                     </td>
@@ -200,7 +200,6 @@
                     </button>
                 </div>
             </div>
-
         </div>
     </div>
     @endif
@@ -244,7 +243,7 @@
                     <input
                         type="text"
                         name="folder_path"
-                        value="{{ $folderPath ?? '' }}"
+                        value="{{ old('folder_path', $folderPath ?? '') }}"
                         placeholder="e.g. E:\CPR Files"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
