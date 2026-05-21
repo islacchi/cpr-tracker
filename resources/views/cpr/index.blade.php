@@ -244,7 +244,7 @@
                         type="text"
                         name="folder_path"
                         value="{{ old('folder_path', $folderPath ?? '') }}"
-                        placeholder="e.g. E:\CPR Files"
+                        placeholder="\\Kyle\bid docs  cpr  cgmp  br  product illustration etc"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                 </div>
