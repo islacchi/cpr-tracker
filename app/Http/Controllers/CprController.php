@@ -18,7 +18,7 @@ class CprController extends Controller
     {
         $folderPath = session('last_folder_path');
 
-        if ($folderPath) {
+        if ($folderPath && !session()->has('errors')) {
             return redirect()->route('cpr.results');
         }
 
