@@ -11,3 +11,4 @@ Route::get('/edit/{id}', [CprController::class, 'edit'])->name('cpr.edit');
 Route::post('/update/{id}', [CprController::class, 'update'])->name('cpr.update');
 Route::get('/cpr/progress', [CprController::class, 'progress'])->name('cpr.progress');
 Route::get('/results', [CprController::class, 'results'])->name('cpr.results');
+Route::get('/search', [CprController::class, 'search'])->name('cpr.search');

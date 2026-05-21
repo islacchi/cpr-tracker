@@ -95,7 +95,7 @@
     {{-- ── Duplicates Modal ──────────────────────────────────────── --}}
     @if(isset($duplicates) && count($duplicates) > 0)
     <div id="duplicates-modal" class="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50">
-        <div class="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 flex flex-col" style="max-height: 90vh;">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 flex flex-col" style="max-height: 85vh;">
 
             <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                 <div>
@@ -126,11 +126,11 @@
                     <thead>
                         <tr class="bg-gray-50">
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-60">File</th>
-                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Reg. Number</th>
-                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Brand Name</th>
-                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Generic Name</th>
-                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Expiry Date</th>
-                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600">Status</th>
+                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-32">Reg. Number</th>
+                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-40">Brand Name</th>
+                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-48">Generic Name</th>
+                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-36">Expiry Date</th>
+                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 w-32">Status</th>
                         </tr>
                     </thead>
                 </table>
@@ -144,13 +144,13 @@
                                         {{ $dup['normalized_filename'] ?? $dup['filename'] }}
                                         <div class="text-xs text-gray-400">{{ $dup['filename'] }}</div>
                                     </td>
-                                    <td class="px-3 py-2 text-gray-600">{{ $dup['registration_number'] ?? 'N/A' }}</td>
-                                    <td class="px-3 py-2 font-medium text-gray-800">{{ $dup['brand_name'] ?? 'N/A' }}</td>
-                                    <td class="px-3 py-2 text-gray-600">{{ $dup['generic_name'] ?? 'N/A' }}</td>
-                                    <td class="px-3 py-2 text-gray-600">
+                                    <td class="px-3 py-2 text-gray-600 w-32">{{ $dup['registration_number'] ?? 'N/A' }}</td>
+                                    <td class="px-3 py-2 font-medium text-gray-800 w-40">{{ $dup['brand_name'] ?? 'N/A' }}</td>
+                                    <td class="px-3 py-2 text-gray-600 w-48">{{ $dup['generic_name'] ?? 'N/A' }}</td>
+                                    <td class="px-3 py-2 text-gray-600 w-36">
                                         {{ $dup['expiry_date'] ? \Carbon\Carbon::parse($dup['expiry_date'])->format('M d, Y') : 'N/A' }}
                                     </td>
-                                    <td class="px-3 py-2">
+                                    <td class="px-3 py-2 w-32">
                                         @php
                                             $dupStatusClasses = match($dup['status'] ?? '') {
                                                 'Valid'         => 'bg-green-100 text-green-800',
@@ -256,21 +256,36 @@
                 <p class="text-red-500 text-sm mt-2">{{ $message }}</p>
             @enderror
         </form>
+        
+        <form id="search-form" action="{{ route('cpr.scan') }}" method="POST" class="bg-white rounded-lg shadow p-4 mb-6">
+            @csrf
+            <input type="hidden" name="per_page" value="{{ $perPage ?? 10 }}">
+            <input type="hidden" name="page" value="1">
+            <input type="hidden" name="filter_status" value="{{ $filterStatus ?? '' }}">
+            <input
+                id="search-input"
+                type="text"
+                name="search"
+                value="{{ $search ?? '' }}"
+                placeholder="Search by brand name..."
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                autocomplete="off"
+            >
+        </form>
 
         @if(count($results) > 0)
             <div class="bg-white rounded-lg shadow overflow-hidden">
-                <table class="w-full">
+                <table class="w-full table-fixed">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Actions</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">File</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Reg. Number</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Brand Name</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Generic Name</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Expiry Date</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Days Left</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">Status</th>
-                            <!-- <th>OCR Confidence</th> -->
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-20">Actions</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-80">File</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-32">Reg. Number</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-32">Brand Name</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-48">Generic Name</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-32">Expiry Date</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-24">Days Left</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-36">Status</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200">
@@ -358,6 +373,7 @@
                                 @csrf
                                 <input type="hidden" name="per_page" value="{{ $size }}">
                                 <input type="hidden" name="page" value="1">
+                                <input type="hidden" name="search" value="{{ $search ?? '' }}">
                                 <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $size }}</button>
                             </form>
                         @endif
@@ -373,6 +389,7 @@
                             @csrf
                             <input type="hidden" name="per_page" value="{{ $perPage }}">
                             <input type="hidden" name="page" value="{{ $page - 1 }}">
+                            <input type="hidden" name="search" value="{{ $search ?? '' }}">
                             <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">← Prev</button>
                         </form>
                     @endif
@@ -385,6 +402,7 @@
                                 @csrf
                                 <input type="hidden" name="per_page" value="{{ $perPage }}">
                                 <input type="hidden" name="page" value="{{ $pageNum }}">
+                                <input type="hidden" name="search" value="{{ $search ?? '' }}">
                                 <button type="submit" class="px-3 py-1 text-sm rounded-lg border transition bg-white text-gray-600 border-gray-300 hover:bg-gray-50">{{ $pageNum }}</button>
                             </form>
                         @endif
@@ -395,6 +413,7 @@
                             @csrf
                             <input type="hidden" name="per_page" value="{{ $perPage }}">
                             <input type="hidden" name="page" value="{{ $page + 1 }}">
+                            <input type="hidden" name="search" value="{{ $search ?? '' }}">
                             <button type="submit" class="px-3 py-1 text-sm rounded-lg border bg-white text-gray-600 border-gray-300 hover:bg-gray-50">Next →</button>
                         </form>
                     @endif
@@ -421,8 +440,43 @@
                         <input type="hidden" name="per_page"      value="{{ $perPage }}">
                         <input type="hidden" name="page"          value="1">
                         <input type="hidden" name="filter_status" value="{{ $f['key'] }}">
+                        <input type="hidden" name="search" value="{{ $search ?? '' }}">
                         <button type="submit"
                             class="w-full {{ $f['bg'] }} {{ $f['border'] }} border rounded-lg p-4 text-center transition-all duration-150 {{ $ringClass }} cursor-pointer">
+                            <div class="text-2xl font-bold {{ $f['text'] }}">{{ $f['count'] }}</div>
+                            <div class="text-sm {{ $f['label'] }}">{{ $f['key'] }}</div>
+                        </button>
+                    </form>
+                @endforeach
+            </div>
+
+        @elseif(isset($search) && $search)
+            <div class="bg-white rounded-lg shadow p-8 text-center">
+                <div class="text-4xl mb-3">🔍</div>
+                <p class="text-gray-600 font-medium">No records found for "{{ $search }}".</p>
+                <p class="text-gray-400 text-sm mt-1">Try a different brand name.</p>
+            </div>
+
+            {{-- Keep summary cards visible --}}
+            <div class="mt-6 grid grid-cols-4 gap-4">
+                @php
+                    $filters = [
+                        ['key' => 'Valid',         'count' => $summaryValid,        'bg' => 'bg-green-50',  'border' => 'border-green-200',  'text' => 'text-green-600',  'label' => 'text-green-800'],
+                        ['key' => 'Expiring Soon', 'count' => $summaryExpiringSoon, 'bg' => 'bg-yellow-50', 'border' => 'border-yellow-200', 'text' => 'text-yellow-600', 'label' => 'text-yellow-800'],
+                        ['key' => 'Expired',       'count' => $summaryExpired,      'bg' => 'bg-red-50',    'border' => 'border-red-200',    'text' => 'text-red-600',    'label' => 'text-red-800'],
+                        ['key' => 'Unknown',       'count' => $summaryErrors,       'bg' => 'bg-gray-50',   'border' => 'border-gray-200',   'text' => 'text-gray-600',   'label' => 'text-gray-800'],
+                    ];
+                @endphp
+                @foreach($filters as $f)
+                    @php $isActive = ($filterStatus ?? '') === $f['key']; @endphp
+                    <form action="{{ route('cpr.scan') }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="per_page"      value="{{ $perPage }}">
+                        <input type="hidden" name="page"          value="1">
+                        <input type="hidden" name="filter_status" value="{{ $f['key'] }}">
+                        <input type="hidden" name="search"        value="{{ $search ?? '' }}">
+                        <button type="submit"
+                            class="w-full {{ $f['bg'] }} {{ $f['border'] }} border rounded-lg p-4 text-center transition-all duration-150 {{ $isActive ? 'ring-2 ring-offset-2 ring-blue-500 scale-105' : 'opacity-60 hover:opacity-100' }} cursor-pointer">
                             <div class="text-2xl font-bold {{ $f['text'] }}">{{ $f['count'] }}</div>
                             <div class="text-sm {{ $f['label'] }}">{{ $f['key'] }}</div>
                         </button>
@@ -471,6 +525,7 @@
                         <input type="hidden" name="per_page"      value="{{ $perPage }}">
                         <input type="hidden" name="page"          value="1">
                         <input type="hidden" name="filter_status" value="{{ $f['key'] }}">
+                        <input type="hidden" name="search"        value="{{ $search ?? '' }}">
                         <button type="submit"
                             class="w-full {{ $f['bg'] }} {{ $f['border'] }} border rounded-lg p-4 text-center transition-all duration-150 {{ $isActive ? 'ring-2 ring-offset-2 ring-blue-500 scale-105' : 'opacity-60 hover:opacity-100' }} cursor-pointer">
                             <div class="text-2xl font-bold {{ $f['text'] }}">{{ $f['count'] }}</div>
@@ -530,6 +585,74 @@
             if (btn) btn.textContent = localStorage.getItem('darkMode') === 'true' ? '☀️' : '🌙';
         });
 
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            let searchTimeout = null;
+
+            searchInput.addEventListener('input', function () {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    fetch(`/search?search=${encodeURIComponent(this.value)}&per_page={{ $perPage ?? 10 }}`)
+                        .then(r => r.json())
+                        .then(data => {
+                            updateTable(data.results);
+                            updateCounts(data.counts);
+                        });
+                }, 400);
+            });
+        }
+
+        function updateTable(results) {
+            const tbody = document.querySelector('table tbody');
+            if (!tbody) return;
+
+            if (results.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">No records found.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = results.map((cpr, i) => {
+                const statusClass = {
+                    'Valid':         'bg-green-100 text-green-800',
+                    'Expiring Soon': 'bg-yellow-100 text-yellow-800',
+                    'Expired':       'bg-red-100 text-red-800',
+                }[cpr.status] ?? 'bg-gray-100 text-gray-800';
+
+                const rowBg = i % 2 === 1 ? 'bg-orange-50' : 'bg-white';
+                const daysHtml = cpr.days_remaining !== null
+                    ? `<span class="${cpr.days_remaining < 0 ? 'text-red-600' : 'text-gray-600'}">${cpr.days_remaining} days</span>`
+                    : 'N/A';
+                const expiryDate = cpr.expiry_date
+                    ? new Date(cpr.expiry_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+                    : 'N/A';
+
+                return `<tr class="${rowBg} hover:bg-orange-100 cursor-pointer">
+                    <td class="px-4 py-3">
+                        <a href="/edit/${cpr.id}" class="px-3 py-1 text-xs font-medium rounded-lg bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition">Edit</a>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-800">
+                        ${cpr.normalized_filename ?? cpr.filename}
+                        <div class="text-xs text-gray-400">${cpr.filename}</div>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${cpr.registration_number ?? 'N/A'}</td>
+                    <td class="px-4 py-3 text-sm font-medium text-gray-800">${cpr.brand_name ?? 'N/A'}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${cpr.generic_name ?? 'N/A'}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${expiryDate}</td>
+                    <td class="px-4 py-3 text-sm">${daysHtml}</td>
+                    <td class="px-4 py-3">
+                        <span class="px-2 py-1 text-xs font-medium rounded-full ${statusClass}">${cpr.status ?? 'Unknown'}</span>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function updateCounts(counts) {
+            const cards = document.querySelectorAll('.summary-count');
+            if (!cards.length) return;
+            const values = [counts.valid, counts.expiring, counts.expired, counts.errors];
+            cards.forEach((el, i) => el.textContent = values[i]);
+        }
+
         const loadingMessages = [
             "🔍 Hunting for expired meds...",
             "📄 Checking database records...",
@@ -588,12 +711,11 @@
 
         document.querySelectorAll('form').forEach(form => {
             form.addEventListener('submit', function () {
-                const folderInput  = document.querySelector('#scan-form input[name="folder_path"]');
-                const folderPath   = folderInput ? folderInput.value.trim() : null;
-                const isPagination = this.querySelector('input[name="page"]') !== null
-                                || this.querySelector('input[name="per_page"]') !== null;
-                showLoading(isPagination ? null : folderPath);
-
+                if (this.id === 'scan-form') {
+                    const folderInput = document.querySelector('#scan-form input[name="folder_path"]');
+                    const folderPath  = folderInput ? folderInput.value.trim() : null;
+                    showLoading(folderPath);
+                }
                 //if (!isPagination) startStopwatch();
             });
         });
