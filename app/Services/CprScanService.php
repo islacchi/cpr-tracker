@@ -120,7 +120,7 @@ class CprScanService
      *
      * @return array{array, int, int}  [$records, $total, $lastPage]
      */
-    public function paginateResults(string $folderPath, int $page, int $perPage, ?string $filterStatus = null): array
+    public function paginateResults(string $folderPath, int $page, int $perPage, ?string $filterStatus = null, ?string $search = null): array
     {
         $diskFiles     = glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
         $diskFilenames = array_map('basename', $diskFiles);
@@ -130,6 +130,9 @@ class CprScanService
 
         if ($filterStatus) {
             $query->where('status', $filterStatus);
+        }
+        if ($search) {
+            $query->where('brand_name', 'LIKE', '%' . $search . '%');
         }
 
         $total    = $query->count();
@@ -151,19 +154,23 @@ class CprScanService
      *
      * @return array{valid: int, expiring: int, expired: int, errors: int}
      */
-    public function summaryCounts(string $folderPath): array
+    public function summaryCounts(string $folderPath, ?string $search = null): array
     {
         $diskFilenames = array_map('basename', glob($folderPath . DIRECTORY_SEPARATOR . '*.pdf') ?: []);
 
-        $row = CprRecord::where('folder_path', $folderPath)
-            ->whereIn('filename', $diskFilenames)
-            ->selectRaw("
-                SUM(status = 'Valid')                     as valid,
-                SUM(status = 'Expiring Soon')             as expiring_soon,
-                SUM(status = 'Expired')                   as expired,
-                SUM(status IN ('Parse Error', 'Unknown')) as errors
-            ")
-            ->first();
+        $query = CprRecord::where('folder_path', $folderPath)
+            ->whereIn('filename', $diskFilenames);
+
+        if ($search) {
+            $query->where('brand_name', 'LIKE', '%' . $search . '%');
+        }
+
+        $row = $query->selectRaw("
+            SUM(status = 'Valid')                     as valid,
+            SUM(status = 'Expiring Soon')             as expiring_soon,
+            SUM(status = 'Expired')                   as expired,
+            SUM(status IN ('Parse Error', 'Unknown')) as errors
+        ")->first();
 
         return [
             'valid'    => (int) ($row->valid ?? 0),

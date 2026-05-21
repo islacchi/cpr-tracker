@@ -63,6 +63,19 @@ class CprController extends Controller
             $filterStatus = session('cpr_filter_status');
         }
         // ────────────────────────────────────────────────────────────────────
+        
+        // ── Search resolution ────────────────────────────────────────────────
+        $incomingSearch = $request->input('search');
+        if (!$isPagination) {
+            $search = null;
+            session()->forget('cpr_search');
+        } elseif ($incomingSearch !== null) {
+            $search = $incomingSearch === '' ? null : $incomingSearch;
+            session(['cpr_search' => $search]);
+        } else {
+            $search = session('cpr_search');
+        }
+        // ────────────────────────────────────────────────────────────────────
 
         if ($isPagination) {
             $fromDb  = session('scan_from_db', 0);
@@ -76,7 +89,7 @@ class CprController extends Controller
             }
         }
 
-        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage, $filterStatus);
+        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage, $filterStatus, $search);
 
         session([
             'cpr_per_page' => $perPage,
@@ -87,6 +100,7 @@ class CprController extends Controller
             'page'          => $page,
             'per_page'      => $perPage,
             'filter_status' => $filterStatus,
+            'search'        => $search,
         ]);
     }
 
@@ -108,9 +122,10 @@ class CprController extends Controller
         $perPage      = (int) $request->input('per_page', 10);
         $page         = (int) $request->input('page', 1);
         $filterStatus = $request->input('filter_status', session('cpr_filter_status'));
+        $search       = $request->input('search', session('cpr_search'));
 
-        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage, $filterStatus);
-        $counts = $this->scanService->summaryCounts($folderPath);
+        [$records, $total, $lastPage] = $this->scanService->paginateResults($folderPath, $page, $perPage, $filterStatus, $search);
+        $counts = $this->scanService->summaryCounts($folderPath,$search);
 
         return view('cpr.index', [
             'results'             => $records,
@@ -126,7 +141,8 @@ class CprController extends Controller
             'summaryExpiringSoon' => $counts['expiring'],
             'summaryExpired'      => $counts['expired'],
             'summaryErrors'       => $counts['errors'],
-            'filterStatus'        => $filterStatus,  // ← added
+            'filterStatus'        => $filterStatus,
+            'search'              => $search,
         ]);
     }
 
@@ -144,6 +160,33 @@ class CprController extends Controller
     {
         session()->forget('scan_duplicates');
         return redirect()->route('cpr.results');
+    }
+
+    public function search(Request $request)
+    {
+        $folderPath   = session('last_folder_path');
+        $search       = $request->input('search', '');
+        $filterStatus = session('cpr_filter_status');
+        $perPage      = (int) $request->input('per_page', session('cpr_per_page', 10));
+
+        if (!$folderPath) {
+            return response()->json(['results' => [], 'total' => 0]);
+        }
+
+        session(['cpr_search' => $search === '' ? null : $search]);
+
+        [$records, $total, $lastPage] = $this->scanService->paginateResults(
+            $folderPath, 1, $perPage, $filterStatus, $search === '' ? null : $search
+        );
+
+        $counts = $this->scanService->summaryCounts($folderPath, $search === '' ? null : $search);
+
+        return response()->json([
+            'results'      => $records,
+            'total'        => $total,
+            'lastPage'     => $lastPage,
+            'counts'       => $counts,
+        ]);
     }
 
     public function update(CprUpdateRequest $request, int $id)
