@@ -26,6 +26,7 @@ class CprScanRequest extends FormRequest
             'force_rescan' => 'nullable|boolean',
             'page'         => 'nullable|integer|min:1',
             'per_page'     => 'nullable|integer|in:10,20,30',
+            'filter_status' => 'nullable|string|in:Valid,Expiring Soon,Expired,Unknown'
         ];
     }
 

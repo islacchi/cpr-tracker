@@ -18,7 +18,7 @@ class CprController extends Controller
     {
         $folderPath = session('last_folder_path');
 
-        if ($folderPath) {
+        if ($folderPath && !session()->has('errors')) {
             return redirect()->route('cpr.results');
         }
 
@@ -138,6 +138,12 @@ class CprController extends Controller
         $this->authorizeRecord($cpr);
 
         return view('cpr.edit', compact('cpr'));
+    }
+
+    public function cancelEdit()
+    {
+        session()->forget('scan_duplicates');
+        return redirect()->route('cpr.results');
     }
 
     public function update(CprUpdateRequest $request, int $id)

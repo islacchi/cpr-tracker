@@ -18,7 +18,6 @@ class CprRecord extends Model
         'expiry_date',
         'days_remaining',
         'status',
-        'sort_order',           // ← added; required by scan upsert
     ];
 
     protected $casts = [
@@ -90,9 +89,10 @@ class CprRecord extends Model
      */
     public function computeStatus(int $warningDays = 90): void
     {
-        $computed             = static::resolveStatus(
+        $computed = static::resolveStatus(
             $this->expiry_date?->toDateString(),
-            $warningDays
+            $warningDays,
+            $this->brand_name
         );
         $this->days_remaining = $computed['days_remaining'];
         $this->status         = $computed['status'];
