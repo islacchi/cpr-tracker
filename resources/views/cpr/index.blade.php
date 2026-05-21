@@ -489,8 +489,8 @@
     </div>
 
     <script>
-        let _swInterval = null;
-        let _swStart    = null;
+        // let _swInterval = null;
+        // let _swStart    = null;
 
         // function startStopwatch() {
         //     _swStart = Date.now();
@@ -594,7 +594,7 @@
                                 || this.querySelector('input[name="per_page"]') !== null;
                 showLoading(isPagination ? null : folderPath);
 
-                if (!isPagination) startStopwatch();  // ← only line added
+                //if (!isPagination) startStopwatch();
             });
         });
 

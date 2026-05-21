@@ -140,6 +140,12 @@ class CprController extends Controller
         return view('cpr.edit', compact('cpr'));
     }
 
+    public function cancelEdit()
+    {
+        session()->forget('scan_duplicates');
+        return redirect()->route('cpr.results');
+    }
+
     public function update(CprUpdateRequest $request, int $id)
     {
         $cpr = CprRecord::findOrFail($id);
