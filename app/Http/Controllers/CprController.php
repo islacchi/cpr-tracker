@@ -168,6 +168,7 @@ class CprController extends Controller
             ),
         ]);
 
+        session()->forget('scan_duplicates');
         session()->flash('success', '✅ CPR record updated successfully!');
 
         return redirect()->route('cpr.results');
