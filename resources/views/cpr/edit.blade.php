@@ -5,110 +5,287 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit CPR Record</title>
     <script src="https://cdn.tailwindcss.com"></script>
-<script>
-    if (localStorage.getItem('darkMode') === 'true') {
-        document.documentElement.classList.add('dark');
-    }
-</script>
+    <script>
+        if (localStorage.getItem('darkMode') === 'true') {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
 
-<style>
-    .dark body             { background-color: #111827; color: #f9fafb; }
-    .dark .bg-white        { background-color: #1f2937 !important; }
-    .dark .bg-gray-100     { background-color: #111827 !important; }
-    .dark .bg-gray-50      { background-color: #374151 !important; }
-    .dark .text-gray-800   { color: #f9fafb !important; }
-    .dark .text-gray-700   { color: #e5e7eb !important; }
-    .dark .text-gray-600   { color: #d1d5db !important; }
-    .dark .text-gray-500   { color: #9ca3af !important; }
-    .dark .border-gray-300 { border-color: #4b5563 !important; }
-    .dark .text-blue-600   { color: #93c5fd !important; }
-    .dark .text-red-500    { color: #fca5a5 !important; }
-    .dark input            { background-color: #374151 !important; color: #f9fafb !important; border-color: #4b5563 !important; }
-</style>
+    <style>
+        * { font-family: Arial, sans-serif; }
+
+        :root {
+            --surface:    #ffffff;
+            --surface-2:  #f8f9fb;
+            --surface-3:  #f1f3f7;
+            --border:     #e4e7ed;
+            --text-1:     #0f1117;
+            --text-2:     #4b5263;
+            --text-3:     #8b94a6;
+            --accent:     #2563eb;
+            --accent-h:   #1d4ed8;
+        }
+
+        .dark {
+            --surface:    #1a1f2e;
+            --surface-2:  #222736;
+            --surface-3:  #2a3042;
+            --border:     #333d55;
+            --text-1:     #d8dce8;
+            --text-2:     #8d97ae;
+            --text-3:     #5c6680;
+            --accent:     #5b8dee;
+            --accent-h:   #7aa3f5;
+        }
+
+        body {
+            background-color: var(--surface-2);
+            color: var(--text-1);
+            min-height: 100vh;
+        }
+
+        .app-header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 30;
+        }
+
+        .app-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-1);
+            letter-spacing: -0.3px;
+            text-decoration: none;
+        }
+
+        .app-logo-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--accent);
+            border-radius: 7px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+        }
+
+        .field {
+            width: 100%;
+            padding: 9px 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-1);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            font-family: Arial, sans-serif;
+        }
+        .field:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+        }
+        .field::placeholder { color: var(--text-3); }
+
+        .field-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-3);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+            width: 100%;
+            font-family: Arial, sans-serif;
+        }
+        .btn-primary:hover { background: var(--accent-h); }
+        .btn-primary:active { transform: scale(0.98); }
+
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-2);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            width: 100%;
+            text-align: center;
+            text-decoration: none;
+            display: block;
+            font-family: Arial, sans-serif;
+        }
+        .btn-ghost:hover { background: var(--surface-3); color: var(--text-1); }
+
+        .theme-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.15s;
+        }
+        .theme-btn:hover { background: var(--surface-3); }
+
+        .file-info {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+
+        .error-msg { color: #dc2626; font-size: 12px; margin-top: 5px; }
+        .dark .error-msg { color: #f87171; }
+
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .animate-in { animation: fadeSlideUp 0.3s ease forwards; }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen p-8">
-    <div class="max-w-2xl mx-auto">
+<body>
 
-        <div class="flex items-center gap-4 mb-8">
-            <h1 class="text-2xl font-bold text-gray-800">Edit CPR Record</h1>
+    {{-- ── Header ── --}}
+    <header class="app-header">
+        <a href="{{ route('cpr.results') }}" class="app-logo">
+            <div class="app-logo-icon">💊</div>
+            CPR Expiry Tracker
+        </a>
+        <button class="theme-btn" onclick="toggleDarkMode()" id="dark-toggle">🌙</button>
+    </header>
+
+    {{-- ── Main ── --}}
+    <main style="max-width:560px;margin:0 auto;padding:32px 24px;">
+
+        {{-- Breadcrumb --}}
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+            <a href="{{ route('cpr.results') }}" style="font-size:13px;color:var(--text-3);text-decoration:none;transition:color .15s;" onmouseover="this.style.color='var(--text-1)'" onmouseout="this.style.color='var(--text-3)'">Results</a>
+            <span style="color:var(--text-3);font-size:13px;">›</span>
+            <span style="font-size:13px;color:var(--text-2);">Edit Record</span>
         </div>
 
-        <!-- {{-- Success Message --}}
-        @if(session('success'))
-            <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 text-green-800 text-sm">
-                {{ session('success') }}
-            </div>
-        @endif -->
+        <div class="panel animate-in" style="padding:24px;">
 
-        <div class="bg-white rounded-lg shadow p-6">
-
-            {{-- File Info --}}
-            <div class="mb-6 p-3 bg-gray-50 rounded-lg">
-                <p class="text-xs text-gray-500 font-medium">File</p>
-                <p class="text-sm text-gray-700">{{ $cpr->filename }}</p>
+            {{-- File info --}}
+            <div class="file-info" style="margin-bottom:24px;">
+                <p style="font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px;">File</p>
+                <p style="font-size:13px;color:var(--text-2);word-break:break-all;font-family:monospace;">{{ $cpr->filename }}</p>
             </div>
 
             <form action="{{ route('cpr.update', $cpr->id) }}" method="POST">
                 @csrf
                 <input type="hidden" name="page" value="{{ request('page', 1) }}">
                 <input type="hidden" name="per_page" value="{{ request('per_page', 10) }}">
+
                 {{-- Registration Number --}}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Registration Number</label>
+                <div style="margin-bottom:16px;">
+                    <label class="field-label">Registration Number</label>
                     <input type="text" name="registration_number"
                         value="{{ old('registration_number', $cpr->registration_number) }}"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        class="field">
                     @error('registration_number')
-                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                        <p class="error-msg">{{ $message }}</p>
                     @enderror
                 </div>
 
                 {{-- Brand Name --}}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Brand Name</label>
+                <div style="margin-bottom:16px;">
+                    <label class="field-label">Brand Name</label>
                     <input type="text" name="brand_name"
                         value="{{ old('brand_name', $cpr->brand_name) }}"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        class="field">
                     @error('brand_name')
-                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                        <p class="error-msg">{{ $message }}</p>
                     @enderror
                 </div>
 
                 {{-- Generic Name --}}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Generic Name</label>
+                <div style="margin-bottom:16px;">
+                    <label class="field-label">Generic Name</label>
                     <input type="text" name="generic_name"
                         value="{{ old('generic_name', $cpr->generic_name) }}"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        class="field">
                     @error('generic_name')
-                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                        <p class="error-msg">{{ $message }}</p>
                     @enderror
                 </div>
 
                 {{-- Expiry Date --}}
-                <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Expiry Date</label>
+                <div style="margin-bottom:28px;">
+                    <label class="field-label">Expiry Date</label>
                     <input type="date" name="expiry_date"
                         value="{{ old('expiry_date', $cpr->expiry_date ? \Carbon\Carbon::parse($cpr->expiry_date)->format('Y-m-d') : '') }}"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        class="field">
                     @error('expiry_date')
-                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                        <p class="error-msg">{{ $message }}</p>
                     @enderror
                 </div>
 
                 {{-- Actions --}}
-                <div class="flex gap-3">
-                    <button type="submit"
-                        class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
-                        Save Changes
-                    </button>
-                    <a href="{{ route('cpr.edit.cancel') }}"
-                        class="flex-1 px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition text-center">
-                        Cancel
-                    </a>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                    <a href="{{ route('cpr.edit.cancel') }}" class="btn-ghost">Cancel</a>
                 </div>
             </form>
         </div>
-    </div>
+    </main>
+
+    <script>
+        function toggleDarkMode() {
+            const html = document.documentElement;
+            const btn  = document.getElementById('dark-toggle');
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+                btn.textContent = '🌙';
+                localStorage.setItem('darkMode', 'false');
+            } else {
+                html.classList.add('dark');
+                btn.textContent = '☀️';
+                localStorage.setItem('darkMode', 'true');
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const btn = document.getElementById('dark-toggle');
+            if (btn) btn.textContent = localStorage.getItem('darkMode') === 'true' ? '☀️' : '🌙';
+        });
+    </script>
 </body>
 </html>
